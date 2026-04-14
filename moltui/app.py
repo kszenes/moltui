@@ -1,12 +1,14 @@
-import os
-import select
-import signal
 import sys
-import termios
-import tty
 from pathlib import Path
 
 import numpy as np
+from rich.segment import Segment
+from rich.style import Style
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.strip import Strip
+from textual.widget import Widget
+from textual.widgets import Footer, Header
 
 from .elements import Molecule
 from .image_renderer import render_scene, rotation_matrix
@@ -14,204 +16,75 @@ from .isosurface import IsosurfaceMesh, extract_isosurfaces
 from .parsers import CubeData, load_molecule, parse_cube_data
 
 
-def _read_key() -> str:
-    """Read a single keypress, handling escape sequences for arrow keys."""
-    ch = sys.stdin.read(1)
-    if ch == "\033":
-        if select.select([sys.stdin], [], [], 0.05)[0]:
-            ch2 = sys.stdin.read(1)
-            if ch2 == "[":
-                ch3 = sys.stdin.read(1)
-                return {
-                    "A": "up",
-                    "B": "down",
-                    "C": "right",
-                    "D": "left",
-                }.get(ch3, "")
-        return "escape"
-    return ch
+# Braille dot positions: each cell is 2 wide x 4 tall
+# Bit layout for Unicode braille (U+2800 + bits):
+#   col0: rows 0-2 = bits 0,1,2; row 3 = bit 6
+#   col1: rows 0-2 = bits 3,4,5; row 3 = bit 7
+_BRAILLE_MAP = np.array([
+    [0x01, 0x08],
+    [0x02, 0x10],
+    [0x04, 0x20],
+    [0x40, 0x80],
+], dtype=np.uint8)
 
 
-class TextViewer:
-    """Fallback viewer using text-based rendering (works over SSH)."""
+class MoleculeView(Widget):
+    """Braille-based 3D molecule renderer."""
 
-    def __init__(
-        self,
-        molecule: Molecule,
-        filepath: str = "",
-        isosurfaces: list[IsosurfaceMesh] | None = None,
-        molden_data=None,
-        current_mo: int = 0,
-        cube_data: CubeData | None = None,
-    ):
-        self.molecule = molecule
-        self.filepath = filepath
-        self.isosurfaces = isosurfaces or []
-        self.molden_data = molden_data
-        self.current_mo = current_mo
-        self.cube_data = cube_data
+    can_focus = True
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.molecule: Molecule | None = None
+        self.isosurfaces: list[IsosurfaceMesh] = []
         self.rot_x = 0.5
         self.rot_y = 0.0
         self.rot_z = 0.0
-        mol_radius = molecule.radius()
-        self.camera_distance = max(4.0, mol_radius * 3.0)
+        self.camera_distance = 4.0
         self.show_bonds = True
         self.show_orbitals = True
         self.dark_bg = True
         self.pan_x = 0.0
         self.pan_y = 0.0
         self.pan_mode = False
+        self._cached_strips: list[Strip] = []
+        self._cached_size: tuple[int, int] = (0, 0)
 
-    def run(self) -> None:
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        self._resize_pending = False
-        old_sigwinch = signal.getsignal(signal.SIGWINCH)
-
-        def _on_resize(signum, frame):
-            self._resize_pending = True
-
-        try:
-            signal.signal(signal.SIGWINCH, _on_resize)
-            tty.setcbreak(fd)
-            sys.stdout.write("\033[?25l")  # hide cursor
-            sys.stdout.write("\033[2J")  # clear screen
-            sys.stdout.flush()
-
-            self._render()
-
-            while True:
-                ready, _, _ = select.select([sys.stdin], [], [], 0.1)
-                if self._resize_pending:
-                    self._resize_pending = False
-                    self._render()
-                if not ready:
-                    continue
-                key = _read_key()
-                if not self._handle_key(key):
-                    break
-                while select.select([sys.stdin], [], [], 0)[0]:
-                    key = _read_key()
-                    if not self._handle_key(key):
-                        return
-        finally:
-            signal.signal(signal.SIGWINCH, old_sigwinch)
-            sys.stdout.write("\033[?25h")  # show cursor
-            sys.stdout.write("\033[2J\033[H")  # clear screen
-            sys.stdout.flush()
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    def set_molecule(self, molecule: Molecule, isosurfaces: list[IsosurfaceMesh] | None = None) -> None:
+        self.molecule = molecule
+        self.isosurfaces = isosurfaces or []
+        mol_radius = molecule.radius()
+        self.camera_distance = max(4.0, mol_radius * 3.0)
+        self._invalidate_cache()
 
     def _clamp_pan(self) -> None:
+        if self.molecule is None:
+            return
         max_pan = self.molecule.radius() * 0.5
         self.pan_x = max(-max_pan, min(max_pan, self.pan_x))
         self.pan_y = max(-max_pan, min(max_pan, self.pan_y))
 
-    def _handle_key(self, key: str) -> bool:
-        needs_render = True
-        pan_step = self.camera_distance * 0.05
+    def _invalidate_cache(self) -> None:
+        self._cached_size = (0, 0)
+        self.refresh()
 
-        if key == "q":
-            return False
-        elif key == "t":
-            self.pan_mode = not self.pan_mode
-        elif key in ("up", "k"):
-            if self.pan_mode:
-                self.pan_y -= pan_step
-                self._clamp_pan()
-            else:
-                self.rot_x -= 0.1
-        elif key in ("down", "j"):
-            if self.pan_mode:
-                self.pan_y += pan_step
-                self._clamp_pan()
-            else:
-                self.rot_x += 0.1
-        elif key in ("left", "h"):
-            if self.pan_mode:
-                self.pan_x += pan_step
-                self._clamp_pan()
-            else:
-                self.rot_y -= 0.1
-        elif key in ("right", "l"):
-            if self.pan_mode:
-                self.pan_x -= pan_step
-                self._clamp_pan()
-            else:
-                self.rot_y += 0.1
-        elif key == ",":
-            self.rot_z += 0.1
-        elif key == ".":
-            self.rot_z -= 0.1
-        elif key in ("+", "=", "K"):
-            self.camera_distance = max(1.0, self.camera_distance - 0.5)
-        elif key in ("-", "J"):
-            self.camera_distance += 0.5
-        elif key == "r":
-            self.rot_x = 0.5
-            self.rot_y = 0.0
-            self.rot_z = 0.0
-            self.pan_x = 0.0
-            self.pan_y = 0.0
-            self.pan_mode = False
-            mol_radius = self.molecule.radius()
-            self.camera_distance = max(4.0, mol_radius * 3.0)
-        elif key == "c":
-            self.pan_x = 0.0
-            self.pan_y = 0.0
-        elif key == "b":
-            self.show_bonds = not self.show_bonds
-        elif key == "i":
-            self.dark_bg = not self.dark_bg
-        elif key == "o":
-            self.show_orbitals = not self.show_orbitals
-        elif key == "]":
-            self._next_mo()
-        elif key == "[":
-            self._prev_mo()
-        else:
-            needs_render = False
+    def render_line(self, y: int) -> Strip:
+        w, h = self.size.width, self.size.height
+        if (w, h) != self._cached_size:
+            self._rebuild(w, h)
+        if 0 <= y < len(self._cached_strips):
+            return self._cached_strips[y]
+        return Strip.blank(w)
 
-        if needs_render:
-            self._render()
-        return True
+    def _rebuild(self, cols: int, rows: int) -> None:
+        self._cached_size = (cols, rows)
 
-    def _next_mo(self) -> None:
-        if self.molden_data is None:
+        if self.molecule is None or cols == 0 or rows == 0:
+            self._cached_strips = [Strip.blank(cols) for _ in range(rows)]
             return
-        if self.current_mo < self.molden_data.n_mos - 1:
-            self.current_mo += 1
-            self._switch_mo()
 
-    def _prev_mo(self) -> None:
-        if self.molden_data is None:
-            return
-        if self.current_mo > 0:
-            self.current_mo -= 1
-            self._switch_mo()
-
-    def _switch_mo(self) -> None:
-        from .molden import evaluate_mo
-
-        cube_data = evaluate_mo(self.molden_data, self.current_mo)
-        self.isosurfaces = extract_isosurfaces(cube_data)
-
-    # Braille dot positions: each cell is 2 wide × 4 tall
-    # Bit layout for Unicode braille (U+2800 + bits):
-    #   col0: rows 0-2 = bits 0,1,2; row 3 = bit 6
-    #   col1: rows 0-2 = bits 3,4,5; row 3 = bit 7
-    _BRAILLE_MAP = np.array([
-        [0x01, 0x08],
-        [0x02, 0x10],
-        [0x04, 0x20],
-        [0x40, 0x80],
-    ], dtype=np.uint8)
-
-    def _render(self) -> None:
-        cols, rows = os.get_terminal_size()
-        display_rows = rows - 2  # leave 1 row for title bar + 1 for status
-        # Each terminal cell = 2×4 pixels
         px_w = cols * 2
-        px_h = display_rows * 4
+        px_h = rows * 4
 
         bg = (0, 0, 0) if self.dark_bg else (255, 255, 255)
         rot = rotation_matrix(self.rot_x, self.rot_y, self.rot_z)
@@ -228,30 +101,114 @@ class TextViewer:
         )
 
         bg_arr = np.array(bg, dtype=np.uint8)
-        # Reshape to (display_rows, 4, cols, 2, 3) for block processing
-        blocks = pixels.reshape(display_rows, 4, cols, 2, 3)
-        # Determine which pixels differ from background -> "on" dots
-        is_on = np.any(blocks != bg_arr, axis=4)  # (display_rows, 4, cols, 2)
+        blocks = pixels.reshape(rows, 4, cols, 2, 3)
+        is_on = np.any(blocks != bg_arr, axis=4)
 
-        # Compute braille codepoints: sum dot bits where pixel is on
-        # _BRAILLE_MAP is (4, 2), broadcast with is_on (display_rows, 4, cols, 2)
-        braille_bits = np.where(is_on, self._BRAILLE_MAP[None, :, None, :], 0)
-        # Sum over the 4 rows and 2 cols of each block -> (display_rows, cols)
+        braille_bits = np.where(is_on, _BRAILLE_MAP[None, :, None, :], 0)
         codepoints = 0x2800 + braille_bits.sum(axis=(1, 3)).astype(np.uint32)
 
-        # Average foreground color per block (only from "on" pixels)
-        on_count = is_on.sum(axis=(1, 3))  # (display_rows, cols)
-        # Sum colors of on-pixels: expand is_on to broadcast with color
-        on_mask = is_on[:, :, :, :, None]  # (display_rows, 4, cols, 2, 1)
-        color_sum = (blocks * on_mask).sum(axis=(1, 3))  # (display_rows, cols, 3)
+        on_count = is_on.sum(axis=(1, 3))
+        on_mask = is_on[:, :, :, :, None]
+        color_sum = (blocks * on_mask).sum(axis=(1, 3))
         safe_count = np.maximum(on_count, 1)[:, :, None]
-        avg_fg = (color_sum / safe_count).astype(np.uint8)  # (display_rows, cols, 3)
+        avg_fg = (color_sum / safe_count).astype(np.uint8)
 
-        # Title bar (row 1)
-        buf = ["\033[1;1H\033[7m"]
-        title_parts = [
-            Path(self.filepath).name,
-        ]
+        bg_style = Style(bgcolor=f"rgb({bg[0]},{bg[1]},{bg[2]})")
+
+        strips = []
+        for row in range(rows):
+            segments = []
+            prev_style = None
+            run_chars: list[str] = []
+            for x in range(cols):
+                cp = int(codepoints[row, x])
+                if cp == 0x2800:
+                    style = bg_style
+                    ch = " "
+                else:
+                    fg = avg_fg[row, x]
+                    style = Style(
+                        color=f"rgb({int(fg[0])},{int(fg[1])},{int(fg[2])})",
+                        bgcolor=f"rgb({bg[0]},{bg[1]},{bg[2]})",
+                    )
+                    ch = chr(cp)
+
+                if style == prev_style:
+                    run_chars.append(ch)
+                else:
+                    if run_chars and prev_style is not None:
+                        segments.append(Segment("".join(run_chars), prev_style))
+                    run_chars = [ch]
+                    prev_style = style
+            if run_chars and prev_style is not None:
+                segments.append(Segment("".join(run_chars), prev_style))
+            strips.append(Strip(segments, cols))
+
+        self._cached_strips = strips
+
+
+class MoltuiApp(App):
+    CSS = """
+    Screen {
+        layout: vertical;
+    }
+    MoleculeView {
+        height: 1fr;
+    }
+    """
+
+    BINDINGS = [
+        Binding("q", "quit", "Quit"),
+        Binding("k,up", "rotate_up", "Rot up", show=False),
+        Binding("j,down", "rotate_down", "Rot down", show=False),
+        Binding("h,left", "rotate_left", "Rot left", show=False),
+        Binding("l,right", "rotate_right", "Rot right", show=False),
+        Binding("comma", "rotate_cw", ",/. roll", show=False),
+        Binding("full_stop", "rotate_ccw", show=False),
+        Binding("K", "zoom_in", "J/K zoom", show=False),
+        Binding("J", "zoom_out", show=False),
+        Binding("plus,equal_sign", "zoom_in", show=False),
+        Binding("minus", "zoom_out", show=False),
+        Binding("t", "toggle_mode", "Pan/Rot"),
+        Binding("c", "center", "Center"),
+        Binding("b", "toggle_bonds", "Bonds"),
+        Binding("i", "toggle_bg", "Bg"),
+        Binding("o", "toggle_orbitals", "Orbitals"),
+        Binding("r", "reset_view", "Reset"),
+        Binding("right_square_bracket", "next_mo", "MO]", show=False),
+        Binding("left_square_bracket", "prev_mo", "[MO", show=False),
+    ]
+
+    def __init__(
+        self,
+        molecule: Molecule,
+        filepath: str = "",
+        isosurfaces: list[IsosurfaceMesh] | None = None,
+        molden_data=None,
+        current_mo: int = 0,
+        cube_data: CubeData | None = None,
+    ):
+        super().__init__()
+        self.molecule = molecule
+        self.filepath = filepath
+        self._isosurfaces = isosurfaces or []
+        self.molden_data = molden_data
+        self.current_mo = current_mo
+        self.cube_data = cube_data
+        self.title = self._title_text()
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield MoleculeView()
+        yield Footer()
+
+    def on_mount(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.set_molecule(self.molecule, self._isosurfaces)
+        view.focus()
+
+    def _title_text(self) -> str:
+        parts = [Path(self.filepath).name]
         if self.molden_data is not None:
             md = self.molden_data
             energy = md.mo_energies[self.current_mo]
@@ -266,46 +223,136 @@ class TextViewer:
                 homo_label = " HOMO"
             elif self.current_mo == md.homo_idx + 1:
                 homo_label = " LUMO"
-            title_parts.append(
+            parts.append(
                 f"MO {self.current_mo + 1}/{md.n_mos} {sym}{homo_label} E={energy:.4f} occ={occ:.1f}"
             )
-        title = " " + " | ".join(title_parts)
-        buf.append(title[:cols].ljust(cols))
-        buf.append("\033[0m")
+        return " | ".join(parts)
 
-        # Braille rendering area (rows 2 to rows-1)
-        for row in range(display_rows):
-            buf.append(f"\033[{row + 2};1H")
-            buf.append(f"\033[48;2;{bg[0]};{bg[1]};{bg[2]}m")
-            prev_fg = None
-            for x in range(cols):
-                cp = int(codepoints[row, x])
-                if cp == 0x2800:
-                    if prev_fg is not None:
-                        prev_fg = None
-                    buf.append(" ")
-                else:
-                    fg = (int(avg_fg[row, x, 0]), int(avg_fg[row, x, 1]), int(avg_fg[row, x, 2]))
-                    if fg != prev_fg:
-                        buf.append(f"\033[38;2;{fg[0]};{fg[1]};{fg[2]}m")
-                        prev_fg = fg
-                    buf.append(chr(cp))
-        buf.append("\033[0m")
-        sys.stdout.write("".join(buf))
+    def _update_title(self) -> None:
+        self.title = self._title_text()
 
-        # Keybinding bar (last row)
-        sys.stdout.write(f"\033[{rows};1H\033[7m")
-        mode = "PAN" if self.pan_mode else "ROT"
-        key_parts = [f"[{mode}] t toggle", "+/- zoom", "b bonds", "i bg"]
-        if self.isosurfaces:
-            key_parts.append("o orb")
-        if self.molden_data is not None:
-            key_parts.append("[/] MO")
-        key_parts += ["r reset", "q quit"]
-        status = " " + " | ".join(key_parts)
-        sys.stdout.write(status[:cols].ljust(cols))
-        sys.stdout.write("\033[0m")
-        sys.stdout.flush()
+    def _refresh_view(self) -> None:
+        view = self.query_one(MoleculeView)
+        view._invalidate_cache()
+
+    def action_rotate_up(self) -> None:
+        view = self.query_one(MoleculeView)
+        if view.pan_mode:
+            view.pan_y -= view.camera_distance * 0.05
+            view._clamp_pan()
+        else:
+            view.rot_x -= 0.1
+        view._invalidate_cache()
+
+    def action_rotate_down(self) -> None:
+        view = self.query_one(MoleculeView)
+        if view.pan_mode:
+            view.pan_y += view.camera_distance * 0.05
+            view._clamp_pan()
+        else:
+            view.rot_x += 0.1
+        view._invalidate_cache()
+
+    def action_rotate_left(self) -> None:
+        view = self.query_one(MoleculeView)
+        if view.pan_mode:
+            view.pan_x += view.camera_distance * 0.05
+            view._clamp_pan()
+        else:
+            view.rot_y -= 0.1
+        view._invalidate_cache()
+
+    def action_rotate_right(self) -> None:
+        view = self.query_one(MoleculeView)
+        if view.pan_mode:
+            view.pan_x -= view.camera_distance * 0.05
+            view._clamp_pan()
+        else:
+            view.rot_y += 0.1
+        view._invalidate_cache()
+
+    def action_rotate_cw(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.rot_z += 0.1
+        view._invalidate_cache()
+
+    def action_rotate_ccw(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.rot_z -= 0.1
+        view._invalidate_cache()
+
+    def action_zoom_in(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.camera_distance = max(1.0, view.camera_distance - 0.5)
+        view._invalidate_cache()
+
+    def action_zoom_out(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.camera_distance += 0.5
+        view._invalidate_cache()
+
+    def action_toggle_mode(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.pan_mode = not view.pan_mode
+        mode = "PAN" if view.pan_mode else "ROT"
+        self.notify(f"Mode: {mode}", timeout=1)
+
+    def action_center(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.pan_x = 0.0
+        view.pan_y = 0.0
+        view._invalidate_cache()
+
+    def action_toggle_bonds(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.show_bonds = not view.show_bonds
+        view._invalidate_cache()
+
+    def action_toggle_bg(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.dark_bg = not view.dark_bg
+        view._invalidate_cache()
+
+    def action_toggle_orbitals(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.show_orbitals = not view.show_orbitals
+        view._invalidate_cache()
+
+    def action_reset_view(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.rot_x = 0.5
+        view.rot_y = 0.0
+        view.rot_z = 0.0
+        view.pan_x = 0.0
+        view.pan_y = 0.0
+        view.pan_mode = False
+        if view.molecule:
+            view.camera_distance = max(4.0, view.molecule.radius() * 3.0)
+        view._invalidate_cache()
+
+    def action_next_mo(self) -> None:
+        if self.molden_data is None:
+            return
+        if self.current_mo < self.molden_data.n_mos - 1:
+            self.current_mo += 1
+            self._switch_mo()
+
+    def action_prev_mo(self) -> None:
+        if self.molden_data is None:
+            return
+        if self.current_mo > 0:
+            self.current_mo -= 1
+            self._switch_mo()
+
+    def _switch_mo(self) -> None:
+        from .molden import evaluate_mo
+
+        cube_data = evaluate_mo(self.molden_data, self.current_mo)
+        self._isosurfaces = extract_isosurfaces(cube_data)
+        view = self.query_one(MoleculeView)
+        view.isosurfaces = self._isosurfaces
+        view._invalidate_cache()
+        self._update_title()
 
 
 def run():
@@ -338,11 +385,11 @@ def run():
     else:
         molecule = load_molecule(filepath)
 
-    viewer = TextViewer(
+    app = MoltuiApp(
         molecule=molecule,
         filepath=filepath,
         isosurfaces=isosurfaces,
         molden_data=molden_data,
         current_mo=current_mo,
     )
-    viewer.run()
+    app.run()

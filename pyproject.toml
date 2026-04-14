@@ -8,7 +8,15 @@ dependencies = [
     "numpy>=1.26",
     "pillow>=10.0",
     "scikit-image>=0.22",
+    "textual>=3.0",
 ]
+
+[project.optional-dependencies]
+molden = ["pyscf>=2.0", "psutil"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project.scripts]
 moltui = "moltui.app:run"

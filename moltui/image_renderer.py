@@ -422,6 +422,14 @@ class ImageRenderer:
         ).astype(np.uint8)
         self.pixels[py_f, px_f] = shaded[order]
 
+    @staticmethod
+    def _dim_color(c: tuple[int, int, int], factor: float = 0.25) -> tuple[int, int, int]:
+        return (int(c[0] * factor), int(c[1] * factor), int(c[2] * factor))
+
+    @staticmethod
+    def _highlight_color() -> tuple[int, int, int]:
+        return (255, 255, 50)
+
     def render_molecule(
         self,
         molecule: Molecule,
@@ -429,12 +437,15 @@ class ImageRenderer:
         camera_distance: float,
         isosurfaces: list[IsosurfaceMesh] | None = None,
         pan: tuple[float, float] = (0.0, 0.0),
+        highlighted_atoms: set[int] | None = None,
     ):
         self.clear()
         if not molecule.atoms:
             return
 
         centroid = molecule.center()
+        hl = highlighted_atoms or set()
+        has_hl = len(hl) > 0
 
         # Render isosurfaces first (they go behind atoms/bonds via z-buffer)
         if isosurfaces:
@@ -450,12 +461,12 @@ class ImageRenderer:
             transformed.append(pos)
 
         for i, j in molecule.bonds:
-            self.render_bond(
-                transformed[i],
-                transformed[j],
-                molecule.atoms[i].element.cpk_color,
-                molecule.atoms[j].element.cpk_color,
-            )
+            c1 = molecule.atoms[i].element.cpk_color
+            c2 = molecule.atoms[j].element.cpk_color
+            if has_hl and i in hl and j in hl:
+                c1 = self._highlight_color()
+                c2 = self._highlight_color()
+            self.render_bond(transformed[i], transformed[j], c1, c2)
 
         atom_order = sorted(
             range(len(molecule.atoms)),
@@ -464,7 +475,8 @@ class ImageRenderer:
         for i in atom_order:
             atom = molecule.atoms[i]
             radius = atom.element.covalent_radius * self.atom_scale
-            self.render_sphere(transformed[i], radius, atom.element.cpk_color)
+            color = self._highlight_color() if has_hl and i in hl else atom.element.cpk_color
+            self.render_sphere(transformed[i], radius, color)
 
     def to_pil_image(self) -> Image.Image:
         return Image.fromarray(self.pixels, "RGB")
@@ -480,10 +492,11 @@ def render_scene(
     isosurfaces: list[IsosurfaceMesh] | None = None,
     ssaa: int = 2,
     pan: tuple[float, float] = (0.0, 0.0),
+    highlighted_atoms: set[int] | None = None,
 ) -> np.ndarray:
     """Render with supersampling anti-aliasing. Returns (height, width, 3) uint8."""
     r = ImageRenderer(width * ssaa, height * ssaa, bg_color=bg_color)
-    r.render_molecule(molecule, rot, camera_distance, isosurfaces=isosurfaces, pan=pan)
+    r.render_molecule(molecule, rot, camera_distance, isosurfaces=isosurfaces, pan=pan, highlighted_atoms=highlighted_atoms)
     if ssaa == 1:
         return r.pixels
     # Box-filter downsample

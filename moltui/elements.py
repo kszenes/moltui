@@ -88,6 +88,60 @@ class Molecule:
         distances = np.linalg.norm(positions - centroid, axis=1)
         return float(distances.max()) if len(distances) > 0 else 1.0
 
+    def _adjacency(self) -> dict[int, list[int]]:
+        adj: dict[int, list[int]] = {i: [] for i in range(len(self.atoms))}
+        for i, j in self.bonds:
+            adj[i].append(j)
+            adj[j].append(i)
+        return adj
+
+    def get_bond_lengths(self) -> list[tuple[int, int, float]]:
+        results = []
+        for i, j in self.bonds:
+            dist = float(np.linalg.norm(self.atoms[i].position - self.atoms[j].position))
+            results.append((i, j, dist))
+        return results
+
+    def get_angles(self) -> list[tuple[int, int, int, float]]:
+        adj = self._adjacency()
+        results = []
+        for j, neighbors in adj.items():
+            for ni, i in enumerate(neighbors):
+                for k in neighbors[ni + 1:]:
+                    v1 = self.atoms[i].position - self.atoms[j].position
+                    v2 = self.atoms[k].position - self.atoms[j].position
+                    cos_a = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-10)
+                    angle = float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
+                    results.append((i, j, k, angle))
+        return results
+
+    def get_dihedrals(self) -> list[tuple[int, int, int, int, float]]:
+        adj = self._adjacency()
+        results = []
+        seen = set()
+        for j, k in self.bonds:
+            for i in adj[j]:
+                if i == k:
+                    continue
+                for l in adj[k]:
+                    if l == j or l == i:
+                        continue
+                    key = (i, j, k, l) if i < l else (l, k, j, i)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    b1 = self.atoms[j].position - self.atoms[i].position
+                    b2 = self.atoms[k].position - self.atoms[j].position
+                    b3 = self.atoms[l].position - self.atoms[k].position
+                    n1 = np.cross(b1, b2)
+                    n2 = np.cross(b2, b3)
+                    n1_norm = np.linalg.norm(n1) + 1e-10
+                    n2_norm = np.linalg.norm(n2) + 1e-10
+                    cos_d = np.dot(n1, n2) / (n1_norm * n2_norm)
+                    angle = float(np.degrees(np.arccos(np.clip(cos_d, -1.0, 1.0))))
+                    results.append((i, j, k, l, angle))
+        return results
+
     def detect_bonds(self, tolerance: float = 1.3):
         self.bonds = []
         n = len(self.atoms)

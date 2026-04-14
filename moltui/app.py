@@ -6,11 +6,13 @@ from rich.segment import Segment
 from rich.style import Style
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.strip import Strip
 from textual.widget import Widget
-from textual.widgets import Footer, Header
+from textual.widgets import DataTable, Footer, Header
 
 from .elements import Molecule
+from .geometry_panel import GeometryPanel
 from .image_renderer import render_scene, rotation_matrix
 from .isosurface import IsosurfaceMesh, extract_isosurfaces
 from .parsers import CubeData, load_molecule, parse_cube_data
@@ -47,6 +49,7 @@ class MoleculeView(Widget):
         self.pan_x = 0.0
         self.pan_y = 0.0
         self.pan_mode = False
+        self.highlighted_atoms: set[int] = set()
         self._cached_strips: list[Strip] = []
         self._cached_size: tuple[int, int] = (0, 0)
 
@@ -94,10 +97,12 @@ class MoleculeView(Widget):
             mol = Molecule(atoms=mol.atoms, bonds=[])
 
         isos = self.isosurfaces if self.show_orbitals else None
+        hl = self.highlighted_atoms if self.highlighted_atoms else None
         pixels = render_scene(
             px_w, px_h, mol, rot, self.camera_distance,
             bg_color=bg, isosurfaces=isos, ssaa=1,
             pan=(self.pan_x, self.pan_y),
+            highlighted_atoms=hl,
         )
 
         bg_arr = np.array(bg, dtype=np.uint8)
@@ -152,8 +157,11 @@ class MoltuiApp(App):
     Screen {
         layout: vertical;
     }
-    MoleculeView {
+    #main-content {
         height: 1fr;
+    }
+    MoleculeView {
+        width: 1fr;
     }
     """
 
@@ -175,6 +183,7 @@ class MoltuiApp(App):
         Binding("i", "toggle_bg", "Bg"),
         Binding("o", "toggle_orbitals", "Orbitals"),
         Binding("r", "reset_view", "Reset"),
+        Binding("g", "toggle_geometry", "Geom"),
         Binding("right_square_bracket", "next_mo", "MO]", show=False),
         Binding("left_square_bracket", "prev_mo", "[MO", show=False),
     ]
@@ -199,12 +208,16 @@ class MoltuiApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield MoleculeView()
+        with Horizontal(id="main-content"):
+            yield MoleculeView()
+            yield GeometryPanel()
         yield Footer()
 
     def on_mount(self) -> None:
         view = self.query_one(MoleculeView)
         view.set_molecule(self.molecule, self._isosurfaces)
+        panel = self.query_one(GeometryPanel)
+        panel.set_molecule(self.molecule)
         view.focus()
 
     def _title_text(self) -> str:
@@ -311,6 +324,7 @@ class MoltuiApp(App):
     def action_toggle_bg(self) -> None:
         view = self.query_one(MoleculeView)
         view.dark_bg = not view.dark_bg
+        self.theme = "textual-dark" if view.dark_bg else "textual-light"
         view._invalidate_cache()
 
     def action_toggle_orbitals(self) -> None:
@@ -326,8 +340,30 @@ class MoltuiApp(App):
         view.pan_x = 0.0
         view.pan_y = 0.0
         view.pan_mode = False
+        view.highlighted_atoms = set()
         if view.molecule:
             view.camera_distance = max(4.0, view.molecule.radius() * 3.0)
+        view._invalidate_cache()
+
+    def action_toggle_geometry(self) -> None:
+        panel = self.query_one(GeometryPanel)
+        panel.toggle_class("visible")
+        view = self.query_one(MoleculeView)
+        if panel.has_class("visible"):
+            # Focus active tab's DataTable and emit its current highlight
+            for dt in panel.query(DataTable):
+                dt.focus()
+                panel._emit_current_highlight(dt)
+                break
+            view._invalidate_cache()
+        else:
+            view.highlighted_atoms = set()
+            view._invalidate_cache()
+            view.focus()
+
+    def on_geometry_panel_highlight_atoms(self, event: GeometryPanel.HighlightAtoms) -> None:
+        view = self.query_one(MoleculeView)
+        view.highlighted_atoms = set(event.atom_indices)
         view._invalidate_cache()
 
     def action_next_mo(self) -> None:

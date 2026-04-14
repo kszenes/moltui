@@ -37,9 +37,12 @@ def extract_isosurfaces(
         norms = np.linalg.norm(normals, axis=1, keepdims=True)
         norms[norms < 1e-10] = 1.0
         normals = normals / norms
-        # Flip normals for negative isosurface to point outward
-        if level < 0:
+        # marching_cubes normals are the gradient (toward increasing values).
+        # For positive isovalue the gradient points inward (into the lobe),
+        # so flip normals outward and reverse face winding to match.
+        if level > 0:
             normals = -normals
+            faces = faces[:, ::-1]
         meshes.append(IsosurfaceMesh(world_verts, faces, normals, color))
 
     return meshes

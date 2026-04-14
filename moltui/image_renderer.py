@@ -405,13 +405,19 @@ class ImageRenderer:
         specular = np.power(n_dot_h, self.shininess) * self.specular_strength
         intensity = np.minimum(1.0, self.ambient + n_dot_l * self.diffuse_strength)
 
+        # Sort back-to-front so closest fragments are written last and win
+        order = np.argsort(-tri_z_f)
+        px_f = px_f[order]
+        py_f = py_f[order]
+        tri_z_f = tri_z_f[order]
+
         # Write z-buffer and pixels
         self.z_buf[py_f, px_f] = tri_z_f
         color = np.array(mesh.color, dtype=np.float32)
         shaded = np.minimum(
             255, color[None, :] * intensity[:, None] + 255 * specular[:, None]
         ).astype(np.uint8)
-        self.pixels[py_f, px_f] = shaded
+        self.pixels[py_f, px_f] = shaded[order]
 
     def render_molecule(
         self,

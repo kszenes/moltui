@@ -102,7 +102,7 @@ class TextViewer:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     def _clamp_pan(self) -> None:
-        max_pan = self.molecule.radius() + 1.0
+        max_pan = self.molecule.radius() * 0.5
         self.pan_x = max(-max_pan, min(max_pan, self.pan_x))
         self.pan_y = max(-max_pan, min(max_pan, self.pan_y))
 
@@ -112,7 +112,7 @@ class TextViewer:
 
         if key == "q":
             return False
-        elif key == "p":
+        elif key == "t":
             self.pan_mode = not self.pan_mode
         elif key in ("up", "k"):
             if self.pan_mode:
@@ -128,13 +128,13 @@ class TextViewer:
                 self.rot_x += 0.1
         elif key in ("left", "h"):
             if self.pan_mode:
-                self.pan_x -= pan_step
+                self.pan_x += pan_step
                 self._clamp_pan()
             else:
                 self.rot_y -= 0.1
         elif key in ("right", "l"):
             if self.pan_mode:
-                self.pan_x += pan_step
+                self.pan_x -= pan_step
                 self._clamp_pan()
             else:
                 self.rot_y += 0.1
@@ -142,9 +142,9 @@ class TextViewer:
             self.rot_z += 0.1
         elif key == ".":
             self.rot_z -= 0.1
-        elif key in ("+", "="):
+        elif key in ("+", "=", "K"):
             self.camera_distance = max(1.0, self.camera_distance - 0.5)
-        elif key == "-":
+        elif key in ("-", "J"):
             self.camera_distance += 0.5
         elif key == "r":
             self.rot_x = 0.5
@@ -155,6 +155,9 @@ class TextViewer:
             self.pan_mode = False
             mol_radius = self.molecule.radius()
             self.camera_distance = max(4.0, mol_radius * 3.0)
+        elif key == "c":
+            self.pan_x = 0.0
+            self.pan_y = 0.0
         elif key == "b":
             self.show_bonds = not self.show_bonds
         elif key == "i":
@@ -205,7 +208,7 @@ class TextViewer:
 
     def _render(self) -> None:
         cols, rows = os.get_terminal_size()
-        display_rows = rows - 1  # leave 1 row for status
+        display_rows = rows - 2  # leave 1 row for title bar + 1 for status
         # Each terminal cell = 2×4 pixels
         px_w = cols * 2
         px_h = display_rows * 4
@@ -244,35 +247,10 @@ class TextViewer:
         safe_count = np.maximum(on_count, 1)[:, :, None]
         avg_fg = (color_sum / safe_count).astype(np.uint8)  # (display_rows, cols, 3)
 
-        buf = ["\033[H"]
-        for row in range(display_rows):
-            buf.append(f"\033[{row + 1};1H")
-            buf.append(f"\033[48;2;{bg[0]};{bg[1]};{bg[2]}m")
-            prev_fg = None
-            for x in range(cols):
-                cp = int(codepoints[row, x])
-                if cp == 0x2800:
-                    # Empty cell — just background
-                    if prev_fg is not None:
-                        prev_fg = None
-                    buf.append(" ")
-                else:
-                    fg = (int(avg_fg[row, x, 0]), int(avg_fg[row, x, 1]), int(avg_fg[row, x, 2]))
-                    if fg != prev_fg:
-                        buf.append(f"\033[38;2;{fg[0]};{fg[1]};{fg[2]}m")
-                        prev_fg = fg
-                    buf.append(chr(cp))
-        buf.append("\033[0m")
-        sys.stdout.write("".join(buf))
-
-        # Status bar
-        sys.stdout.write(f"\033[{rows};1H")
-        sys.stdout.write("\033[7m")
-        n = len(self.molecule.atoms)
-        b = len(self.molecule.bonds)
-        parts = [
+        # Title bar (row 1)
+        buf = ["\033[1;1H\033[7m"]
+        title_parts = [
             Path(self.filepath).name,
-            f"{n} atoms, {b} bonds",
         ]
         if self.molden_data is not None:
             md = self.molden_data
@@ -288,16 +266,43 @@ class TextViewer:
                 homo_label = " HOMO"
             elif self.current_mo == md.homo_idx + 1:
                 homo_label = " LUMO"
-            parts.append(
+            title_parts.append(
                 f"MO {self.current_mo + 1}/{md.n_mos} {sym}{homo_label} E={energy:.4f} occ={occ:.1f}"
             )
-            parts.append("[/] MO")
+        title = " " + " | ".join(title_parts)
+        buf.append(title[:cols].ljust(cols))
+        buf.append("\033[0m")
+
+        # Braille rendering area (rows 2 to rows-1)
+        for row in range(display_rows):
+            buf.append(f"\033[{row + 2};1H")
+            buf.append(f"\033[48;2;{bg[0]};{bg[1]};{bg[2]}m")
+            prev_fg = None
+            for x in range(cols):
+                cp = int(codepoints[row, x])
+                if cp == 0x2800:
+                    if prev_fg is not None:
+                        prev_fg = None
+                    buf.append(" ")
+                else:
+                    fg = (int(avg_fg[row, x, 0]), int(avg_fg[row, x, 1]), int(avg_fg[row, x, 2]))
+                    if fg != prev_fg:
+                        buf.append(f"\033[38;2;{fg[0]};{fg[1]};{fg[2]}m")
+                        prev_fg = fg
+                    buf.append(chr(cp))
+        buf.append("\033[0m")
+        sys.stdout.write("".join(buf))
+
+        # Keybinding bar (last row)
+        sys.stdout.write(f"\033[{rows};1H\033[7m")
         mode = "PAN" if self.pan_mode else "ROT"
-        parts += [f"[{mode}] p toggle", "+/- zoom", "b bonds", "i bg"]
+        key_parts = [f"[{mode}] t toggle", "+/- zoom", "b bonds", "i bg"]
         if self.isosurfaces:
-            parts.append("o orb")
-        parts += ["r reset", "q quit"]
-        status = " " + " | ".join(parts)
+            key_parts.append("o orb")
+        if self.molden_data is not None:
+            key_parts.append("[/] MO")
+        key_parts += ["r reset", "q quit"]
+        status = " " + " | ".join(key_parts)
         sys.stdout.write(status[:cols].ljust(cols))
         sys.stdout.write("\033[0m")
         sys.stdout.flush()

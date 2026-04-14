@@ -27,7 +27,7 @@ class Renderer:
         self.fov = 1.5
         self.light_dir = np.array([0.4, 0.7, -0.6])
         self.light_dir /= np.linalg.norm(self.light_dir)
-        self.ambient = 0.25
+        self.ambient = 0.4
         self.atom_scale = 0.35  # scale factor for atom display radius
         self.bond_radius = 0.05  # 3D radius of bond cylinders in Angstrom
         self.clear()

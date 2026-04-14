@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 
 from .elements import Molecule
+from .isosurface import IsosurfaceMesh
 
 
 def rotation_matrix(rx: float, ry: float, rz: float) -> np.ndarray:
@@ -192,17 +193,145 @@ class ImageRenderer:
                     255, (color[c] * ints)
                 ).astype(np.uint8)
 
+    def render_isosurface(
+        self,
+        mesh: IsosurfaceMesh,
+        rot: np.ndarray,
+        camera_distance: float,
+        centroid: np.ndarray,
+    ):
+        if len(mesh.faces) == 0:
+            return
+
+        # Transform all vertices at once
+        centered = mesh.vertices - centroid
+        transformed = (rot @ centered.T).T
+        transformed[:, 2] += camera_distance
+
+        # Transform normals
+        rot_normals = (rot @ mesh.normals.T).T
+
+        # Project all vertices
+        scale = min(self.width, self.height) / 2
+        valid_z = transformed[:, 2] > 0.1
+        projected = np.zeros((len(transformed), 3))
+        z = transformed[:, 2]
+        safe_z = np.where(valid_z, z, 1.0)
+        projected[:, 0] = self.width / 2 + transformed[:, 0] * self.fov / safe_z * scale
+        projected[:, 1] = (
+            self.height / 2 - transformed[:, 1] * self.fov / safe_z * scale
+        )
+        projected[:, 2] = z
+
+        # Process each triangle
+        color = np.array(mesh.color, dtype=np.float64)
+        for face in mesh.faces:
+            i0, i1, i2 = face
+            if not (valid_z[i0] and valid_z[i1] and valid_z[i2]):
+                continue
+
+            s0, s1, s2 = projected[i0], projected[i1], projected[i2]
+            n0, n1, n2 = rot_normals[i0], rot_normals[i1], rot_normals[i2]
+
+            # Backface cull using screen-space winding
+            edge1x = s1[0] - s0[0]
+            edge1y = s1[1] - s0[1]
+            edge2x = s2[0] - s0[0]
+            edge2y = s2[1] - s0[1]
+            cross = edge1x * edge2y - edge1y * edge2x
+            if cross <= 0:
+                continue
+
+            # Bounding box
+            x_min = max(0, int(min(s0[0], s1[0], s2[0])))
+            x_max = min(self.width - 1, int(max(s0[0], s1[0], s2[0])) + 1)
+            y_min = max(0, int(min(s0[1], s1[1], s2[1])))
+            y_max = min(self.height - 1, int(max(s0[1], s1[1], s2[1])) + 1)
+
+            if x_min > x_max or y_min > y_max:
+                continue
+
+            # Vectorized barycentric coordinates
+            ys = np.arange(y_min, y_max + 1, dtype=np.float64)
+            xs = np.arange(x_min, x_max + 1, dtype=np.float64)
+            px, py = np.meshgrid(xs, ys)
+
+            d = (s1[1] - s2[1]) * (s0[0] - s2[0]) + (s2[0] - s1[0]) * (
+                s0[1] - s2[1]
+            )
+            if abs(d) < 1e-10:
+                continue
+
+            inv_d = 1.0 / d
+            w0 = (
+                (s1[1] - s2[1]) * (px - s2[0]) + (s2[0] - s1[0]) * (py - s2[1])
+            ) * inv_d
+            w1 = (
+                (s2[1] - s0[1]) * (px - s2[0]) + (s0[0] - s2[0]) * (py - s2[1])
+            ) * inv_d
+            w2 = 1.0 - w0 - w1
+
+            inside = (w0 >= 0) & (w1 >= 0) & (w2 >= 0)
+            if not inside.any():
+                continue
+
+            # Interpolate z
+            tri_z = w0 * s0[2] + w1 * s1[2] + w2 * s2[2]
+
+            # Z-buffer test
+            z_slice = self.z_buf[y_min : y_max + 1, x_min : x_max + 1]
+            valid = inside & (tri_z < z_slice)
+            if not valid.any():
+                continue
+
+            # Interpolate normals for smooth shading
+            inx = w0 * n0[0] + w1 * n1[0] + w2 * n2[0]
+            iny = w0 * n0[1] + w1 * n1[1] + w2 * n2[1]
+            inz = w0 * n0[2] + w1 * n1[2] + w2 * n2[2]
+            in_len = np.sqrt(inx * inx + iny * iny + inz * inz) + 1e-10
+            inx /= in_len
+            iny /= in_len
+            inz /= in_len
+
+            # Ensure normals face camera (negative z = toward camera)
+            facing_away = inz > 0
+            inx = np.where(facing_away, -inx, inx)
+            iny = np.where(facing_away, -iny, iny)
+            inz = np.where(facing_away, -inz, inz)
+
+            diffuse = np.maximum(
+                0.0,
+                inx * self.light_dir[0]
+                + iny * self.light_dir[1]
+                + inz * self.light_dir[2],
+            )
+            intensity = np.minimum(1.0, self.ambient + (1.0 - self.ambient) * diffuse)
+
+            z_slice[valid] = tri_z[valid]
+            for c in range(3):
+                channel = self.pixels[y_min : y_max + 1, x_min : x_max + 1, c]
+                channel[valid] = np.minimum(
+                    255, (color[c] * intensity[valid])
+                ).astype(np.uint8)
+
     def render_molecule(
         self,
         molecule: Molecule,
         rot: np.ndarray,
         camera_distance: float,
+        isosurfaces: list[IsosurfaceMesh] | None = None,
     ):
         self.clear()
         if not molecule.atoms:
             return
 
         centroid = molecule.center()
+
+        # Render isosurfaces first (they go behind atoms/bonds via z-buffer)
+        if isosurfaces:
+            for mesh in isosurfaces:
+                self.render_isosurface(mesh, rot, camera_distance, centroid)
+
         transformed = []
         for atom in molecule.atoms:
             pos = rot @ (atom.position - centroid)

@@ -244,12 +244,15 @@ class ImageRenderer:
         rot: np.ndarray,
         camera_distance: float,
         centroid: np.ndarray,
+        pan: tuple[float, float] = (0.0, 0.0),
     ):
         if len(mesh.faces) == 0:
             return
 
         # Transform all vertices and normals at once
         transformed = (rot @ (mesh.vertices - centroid).T).T
+        transformed[:, 0] += pan[0]
+        transformed[:, 1] += pan[1]
         transformed[:, 2] += camera_distance
         rot_normals = (rot @ mesh.normals.T).T
 
@@ -425,6 +428,7 @@ class ImageRenderer:
         rot: np.ndarray,
         camera_distance: float,
         isosurfaces: list[IsosurfaceMesh] | None = None,
+        pan: tuple[float, float] = (0.0, 0.0),
     ):
         self.clear()
         if not molecule.atoms:
@@ -435,11 +439,13 @@ class ImageRenderer:
         # Render isosurfaces first (they go behind atoms/bonds via z-buffer)
         if isosurfaces:
             for mesh in isosurfaces:
-                self.render_isosurface(mesh, rot, camera_distance, centroid)
+                self.render_isosurface(mesh, rot, camera_distance, centroid, pan)
 
         transformed = []
         for atom in molecule.atoms:
             pos = rot @ (atom.position - centroid)
+            pos[0] += pan[0]
+            pos[1] += pan[1]
             pos[2] += camera_distance
             transformed.append(pos)
 
@@ -473,10 +479,11 @@ def render_scene(
     bg_color: tuple[int, int, int] = (0, 0, 0),
     isosurfaces: list[IsosurfaceMesh] | None = None,
     ssaa: int = 2,
+    pan: tuple[float, float] = (0.0, 0.0),
 ) -> np.ndarray:
     """Render with supersampling anti-aliasing. Returns (height, width, 3) uint8."""
     r = ImageRenderer(width * ssaa, height * ssaa, bg_color=bg_color)
-    r.render_molecule(molecule, rot, camera_distance, isosurfaces=isosurfaces)
+    r.render_molecule(molecule, rot, camera_distance, isosurfaces=isosurfaces, pan=pan)
     if ssaa == 1:
         return r.pixels
     # Box-filter downsample

@@ -213,13 +213,25 @@ class TextViewer:
         cube_data = evaluate_mo(self.molden_data, self.current_mo)
         self.isosurfaces = extract_isosurfaces(cube_data)
 
+    # Braille dot positions: each cell is 2 wide × 4 tall
+    # Bit layout for Unicode braille (U+2800 + bits):
+    #   col0: rows 0-2 = bits 0,1,2; row 3 = bit 6
+    #   col1: rows 0-2 = bits 3,4,5; row 3 = bit 7
+    _BRAILLE_MAP = np.array([
+        [0x01, 0x08],
+        [0x02, 0x10],
+        [0x04, 0x20],
+        [0x40, 0x80],
+    ], dtype=np.uint8)
+
     def _render(self) -> None:
         cols, rows = os.get_terminal_size()
         display_rows = rows - 1  # leave 1 row for status
-        # Render at 2x vertical resolution, then combine row pairs with half-blocks
-        pixel_rows = display_rows * 2
+        # Each terminal cell = 2×4 pixels
+        px_w = cols * 2
+        px_h = display_rows * 4
 
-        renderer = Renderer(cols, pixel_rows)
+        bg = (0, 0, 0) if self.dark_bg else (255, 255, 255)
         rot = rotation_matrix(self.rot_x, self.rot_y, self.rot_z)
 
         mol = self.molecule
@@ -227,39 +239,49 @@ class TextViewer:
             mol = Molecule(atoms=mol.atoms, bonds=[])
 
         isos = self.isosurfaces if self.show_orbitals else None
-        renderer.render_molecule(mol, rot, self.camera_distance, isosurfaces=isos)
+        pixels = render_scene(
+            px_w, px_h, mol, rot, self.camera_distance,
+            bg_color=bg, isosurfaces=isos, ssaa=1,
+        )
 
-        bg_default = (0, 0, 0) if self.dark_bg else (255, 255, 255)
-        buf = ["\033[H"]  # cursor home
+        bg_arr = np.array(bg, dtype=np.uint8)
+        # Reshape to (display_rows, 4, cols, 2, 3) for block processing
+        blocks = pixels.reshape(display_rows, 4, cols, 2, 3)
+        # Determine which pixels differ from background -> "on" dots
+        is_on = np.any(blocks != bg_arr, axis=4)  # (display_rows, 4, cols, 2)
+
+        # Compute braille codepoints: sum dot bits where pixel is on
+        # _BRAILLE_MAP is (4, 2), broadcast with is_on (display_rows, 4, cols, 2)
+        braille_bits = np.where(is_on, self._BRAILLE_MAP[None, :, None, :], 0)
+        # Sum over the 4 rows and 2 cols of each block -> (display_rows, cols)
+        codepoints = 0x2800 + braille_bits.sum(axis=(1, 3)).astype(np.uint32)
+
+        # Average foreground color per block (only from "on" pixels)
+        on_count = is_on.sum(axis=(1, 3))  # (display_rows, cols)
+        # Sum colors of on-pixels: expand is_on to broadcast with color
+        on_mask = is_on[:, :, :, :, None]  # (display_rows, 4, cols, 2, 1)
+        color_sum = (blocks * on_mask).sum(axis=(1, 3))  # (display_rows, cols, 3)
+        safe_count = np.maximum(on_count, 1)[:, :, None]
+        avg_fg = (color_sum / safe_count).astype(np.uint8)  # (display_rows, cols, 3)
+
+        buf = ["\033[H"]
         for row in range(display_rows):
-            top_y = row * 2
-            bot_y = row * 2 + 1
             buf.append(f"\033[{row + 1};1H")
+            buf.append(f"\033[48;2;{bg[0]};{bg[1]};{bg[2]}m")
             prev_fg = None
-            prev_bg = None
             for x in range(cols):
-                # Top pixel = foreground color of ▀, bottom pixel = background color
-                fg = renderer.bg_buf[top_y][x] or bg_default
-                bg = renderer.bg_buf[bot_y][x] or bg_default
-                # Minimize escape codes by only emitting changes
-                if fg == bg:
-                    # Both halves same color — just use a space with bg
-                    if bg != prev_bg or prev_fg is not None:
-                        buf.append(f"\033[0;48;2;{bg[0]};{bg[1]};{bg[2]}m")
-                        prev_bg = bg
+                cp = int(codepoints[row, x])
+                if cp == 0x2800:
+                    # Empty cell — just background
+                    if prev_fg is not None:
                         prev_fg = None
                     buf.append(" ")
                 else:
-                    parts = []
+                    fg = (int(avg_fg[row, x, 0]), int(avg_fg[row, x, 1]), int(avg_fg[row, x, 2]))
                     if fg != prev_fg:
-                        parts.append(f"38;2;{fg[0]};{fg[1]};{fg[2]}")
+                        buf.append(f"\033[38;2;{fg[0]};{fg[1]};{fg[2]}m")
                         prev_fg = fg
-                    if bg != prev_bg:
-                        parts.append(f"48;2;{bg[0]};{bg[1]};{bg[2]}")
-                        prev_bg = bg
-                    if parts:
-                        buf.append(f"\033[{';'.join(parts)}m")
-                    buf.append("\u2580")  # ▀ upper half block
+                    buf.append(chr(cp))
         buf.append("\033[0m")
         sys.stdout.write("".join(buf))
 

@@ -17,6 +17,7 @@ from .elements import Molecule
 from .image_renderer import render_scene, rotation_matrix
 from .isosurface import IsosurfaceMesh, extract_isosurfaces
 from .parsers import load_molecule, parse_cube_data
+from .renderer import Renderer
 
 
 def _get_terminal_pixel_size() -> tuple[int, int]:
@@ -96,6 +97,130 @@ def _read_key() -> str:
                 }.get(ch3, "")
         return "escape"
     return ch
+
+
+class TextViewer:
+    """Fallback viewer using text-based rendering (works over SSH)."""
+
+    def __init__(
+        self,
+        molecule: Molecule,
+        filepath: str = "",
+    ):
+        self.molecule = molecule
+        self.filepath = filepath
+        self.rot_x = 0.5
+        self.rot_y = 0.0
+        self.rot_z = 0.0
+        mol_radius = molecule.radius()
+        self.camera_distance = max(4.0, mol_radius * 3.0)
+        self.show_bonds = True
+        self.dark_bg = True
+
+    def run(self) -> None:
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            sys.stdout.write("\033[?25l")  # hide cursor
+            sys.stdout.write("\033[2J")  # clear screen
+            sys.stdout.flush()
+
+            self._render()
+
+            while True:
+                key = _read_key()
+                if not self._handle_key(key):
+                    break
+                while select.select([sys.stdin], [], [], 0)[0]:
+                    key = _read_key()
+                    if not self._handle_key(key):
+                        return
+        finally:
+            sys.stdout.write("\033[?25h")  # show cursor
+            sys.stdout.write("\033[2J\033[H")  # clear screen
+            sys.stdout.flush()
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+    def _handle_key(self, key: str) -> bool:
+        needs_render = True
+
+        if key == "q":
+            return False
+        elif key in ("up", "k"):
+            self.rot_x -= 0.1
+        elif key in ("down", "j"):
+            self.rot_x += 0.1
+        elif key in ("left", "h"):
+            self.rot_y -= 0.1
+        elif key in ("right", "l"):
+            self.rot_y += 0.1
+        elif key == ",":
+            self.rot_z += 0.1
+        elif key == ".":
+            self.rot_z -= 0.1
+        elif key in ("+", "="):
+            self.camera_distance = max(1.0, self.camera_distance - 0.5)
+        elif key == "-":
+            self.camera_distance += 0.5
+        elif key == "r":
+            self.rot_x = 0.5
+            self.rot_y = 0.0
+            self.rot_z = 0.0
+            mol_radius = self.molecule.radius()
+            self.camera_distance = max(4.0, mol_radius * 3.0)
+        elif key == "b":
+            self.show_bonds = not self.show_bonds
+        elif key == "i":
+            self.dark_bg = not self.dark_bg
+        else:
+            needs_render = False
+
+        if needs_render:
+            self._render()
+        return True
+
+    def _render(self) -> None:
+        cols, rows = os.get_terminal_size()
+        render_rows = rows - 1  # leave 1 row for status
+
+        renderer = Renderer(cols, render_rows)
+        rot = rotation_matrix(self.rot_x, self.rot_y, self.rot_z)
+
+        mol = self.molecule
+        if not self.show_bonds:
+            mol = Molecule(atoms=mol.atoms, bonds=[])
+
+        renderer.render_molecule(mol, rot, self.camera_distance)
+
+        bg = "0;0;0" if self.dark_bg else "255;255;255"
+        sys.stdout.write("\033[H")  # cursor home
+        for y in range(render_rows):
+            sys.stdout.write(f"\033[{y + 1};1H")
+            for x in range(cols):
+                bg_col = renderer.bg_buf[y][x]
+                if bg_col is not None:
+                    sys.stdout.write(
+                        f"\033[48;2;{bg_col[0]};{bg_col[1]};{bg_col[2]}m \033[0m"
+                    )
+                else:
+                    sys.stdout.write(f"\033[48;2;{bg}m \033[0m")
+
+        # Status bar
+        sys.stdout.write(f"\033[{rows};1H")
+        sys.stdout.write("\033[7m")
+        n = len(self.molecule.atoms)
+        b = len(self.molecule.bonds)
+        parts = [
+            Path(self.filepath).name,
+            f"{n} atoms, {b} bonds",
+            "arrows rot", "+/- zoom", "b bonds", "i bg",
+            "r reset", "q quit",
+        ]
+        status = " " + " | ".join(parts)
+        sys.stdout.write(status[:cols].ljust(cols))
+        sys.stdout.write("\033[0m")
+        sys.stdout.flush()
 
 
 class KittyViewer:
@@ -292,11 +417,16 @@ class KittyViewer:
 
 
 def run():
-    if len(sys.argv) < 2:
-        print("Usage: moltui <file.xyz|file.cube|file.molden>")
+    args = sys.argv[1:]
+    text_mode = "--text" in args
+    if text_mode:
+        args.remove("--text")
+
+    if len(args) < 1:
+        print("Usage: moltui [--text] <file.xyz|file.cube|file.molden>")
         sys.exit(1)
 
-    filepath = sys.argv[1]
+    filepath = args[0]
     suffix = Path(filepath).suffix.lower()
     isosurfaces: list[IsosurfaceMesh] = []
     molden_data = None
@@ -319,11 +449,17 @@ def run():
     else:
         molecule = load_molecule(filepath)
 
-    viewer = KittyViewer(
-        molecule=molecule,
-        filepath=filepath,
-        isosurfaces=isosurfaces,
-        molden_data=molden_data,
-        current_mo=current_mo,
-    )
+    if text_mode:
+        viewer = TextViewer(
+            molecule=molecule,
+            filepath=filepath,
+        )
+    else:
+        viewer = KittyViewer(
+            molecule=molecule,
+            filepath=filepath,
+            isosurfaces=isosurfaces,
+            molden_data=molden_data,
+            current_mo=current_mo,
+        )
     viewer.run()

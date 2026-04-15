@@ -55,6 +55,7 @@ class MoleculeView(Widget):
         self.pan_y = 0.0
         self.pan_mode = False
         self.highlighted_atoms: set[int] = set()
+        self.licorice = False
         self._cached_strips: list[Strip] = []
         self._cached_size: tuple[int, int] = (0, 0)
 
@@ -116,6 +117,7 @@ class MoleculeView(Widget):
             ssaa=1,
             pan=(self.pan_x, self.pan_y),
             highlighted_atoms=hl,
+            licorice=self.licorice,
         )
 
         blocks = pixels.reshape(rows, 4, cols, 2, 3)
@@ -215,6 +217,7 @@ class MoltuiApp(App):
         Binding("c", "center", "Center", show=False),
         Binding("r", "reset_view", "Reset"),
         Binding("b", "toggle_bonds", "Bonds"),
+        Binding("v", "toggle_style", "Style"),
         Binding("i", "toggle_bg", "Bg"),
         Binding("o", "toggle_orbitals", "Orbitals"),
         Binding("escape", "close_panel", "Close panel", show=False),
@@ -371,6 +374,11 @@ class MoltuiApp(App):
         view = self.query_one(MoleculeView)
         view.pan_x = 0.0
         view.pan_y = 0.0
+        view._invalidate_cache()
+
+    def action_toggle_style(self) -> None:
+        view = self.query_one(MoleculeView)
+        view.licorice = not view.licorice
         view._invalidate_cache()
 
     def action_toggle_bonds(self) -> None:

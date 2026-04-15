@@ -455,6 +455,7 @@ class ImageRenderer:
         isosurfaces: list[IsosurfaceMesh] | None = None,
         pan: tuple[float, float] = (0.0, 0.0),
         highlighted_atoms: set[int] | None = None,
+        licorice: bool = False,
     ):
         self.clear()
         if not molecule.atoms:
@@ -477,6 +478,10 @@ class ImageRenderer:
             pos[2] += camera_distance
             transformed.append(pos)
 
+        saved_bond_radius = self.bond_radius
+        if licorice:
+            self.bond_radius = 0.15
+
         for i, j in molecule.bonds:
             c1 = molecule.atoms[i].element.cpk_color
             c2 = molecule.atoms[j].element.cpk_color
@@ -485,13 +490,18 @@ class ImageRenderer:
                 c2 = self._highlight_color()
             self.render_bond(transformed[i], transformed[j], c1, c2)
 
+        self.bond_radius = saved_bond_radius
+
         atom_order = sorted(
             range(len(molecule.atoms)),
             key=lambda idx: -transformed[idx][2],
         )
         for i in atom_order:
             atom = molecule.atoms[i]
-            radius = atom.element.covalent_radius * self.atom_scale
+            if licorice:
+                radius = self.bond_radius
+            else:
+                radius = atom.element.covalent_radius * self.atom_scale
             color = self._highlight_color() if has_hl and i in hl else atom.element.cpk_color
             self.render_sphere(transformed[i], radius, color)
 
@@ -507,6 +517,7 @@ def render_scene(
     ssaa: int = 2,
     pan: tuple[float, float] = (0.0, 0.0),
     highlighted_atoms: set[int] | None = None,
+    licorice: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Render with supersampling anti-aliasing.
 
@@ -521,6 +532,7 @@ def render_scene(
         isosurfaces=isosurfaces,
         pan=pan,
         highlighted_atoms=highlighted_atoms,
+        licorice=licorice,
     )
     hit = np.isfinite(r.z_buf)
     if ssaa == 1:

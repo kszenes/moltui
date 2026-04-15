@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import DataTable
 
 
 class MOPanel(Widget):
+    BINDINGS = [
+        Binding("right_square_bracket", "next_mo", "MO]", show=False),
+        Binding("left_square_bracket", "prev_mo", "[MO", show=False),
+    ]
     DEFAULT_CSS = """
     MOPanel {
         width: 45;
@@ -103,6 +108,16 @@ class MOPanel(Widget):
         rk = list(dt.rows.keys())[dt.cursor_row]
         if rk.value is not None:
             self.post_message(self.MOSelected(int(rk.value)))
+
+    def action_next_mo(self) -> None:
+        table = self.query_one("#mo-table", DataTable)
+        if table.cursor_row < table.row_count - 1:
+            table.move_cursor(row=table.cursor_row + 1)
+
+    def action_prev_mo(self) -> None:
+        table = self.query_one("#mo-table", DataTable)
+        if table.cursor_row > 0:
+            table.move_cursor(row=table.cursor_row - 1)
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if self._populating or not self.has_class("visible"):

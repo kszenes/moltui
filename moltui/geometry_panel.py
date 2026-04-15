@@ -8,7 +8,6 @@ from .elements import Molecule
 
 
 class GeometryPanel(Widget):
-
     BINDINGS = [
         Binding("tab", "next_tab", "Tab", show=True),
         Binding("shift+tab", "prev_tab", "Prev tab", show=False),
@@ -103,7 +102,9 @@ class GeometryPanel(Widget):
         table.add_columns("Atom 1", "Atom 2", "Length (\u00c5)")
         for i, j, dist in bonds:
             table.add_row(
-                self._atom_label(i), self._atom_label(j), f"{dist:.4f}",
+                self._atom_label(i),
+                self._atom_label(j),
+                f"{dist:.4f}",
                 key=f"{i}-{j}",
             )
 
@@ -116,7 +117,9 @@ class GeometryPanel(Widget):
         table.add_columns("Atom 1", "Vertex", "Atom 3", "Angle (\u00b0)")
         for i, j, k, angle in angles:
             table.add_row(
-                self._atom_label(i), self._atom_label(j), self._atom_label(k),
+                self._atom_label(i),
+                self._atom_label(j),
+                self._atom_label(k),
                 f"{angle:.3f}",
                 key=f"{i}-{j}-{k}",
             )
@@ -130,8 +133,10 @@ class GeometryPanel(Widget):
         table.add_columns("Atom 1", "Atom 2", "Atom 3", "Atom 4", "Angle (\u00b0)")
         for i, j, k, l, angle in dihedrals:
             table.add_row(
-                self._atom_label(i), self._atom_label(j),
-                self._atom_label(k), self._atom_label(l),
+                self._atom_label(i),
+                self._atom_label(j),
+                self._atom_label(k),
+                self._atom_label(l),
                 f"{angle:.3f}",
                 key=f"{i}-{j}-{k}-{l}",
             )

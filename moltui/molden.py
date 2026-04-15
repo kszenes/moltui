@@ -45,9 +45,7 @@ def parse_molden_atoms(filepath: str | Path) -> Molecule:
                     x *= BOHR_TO_ANGSTROM
                     y *= BOHR_TO_ANGSTROM
                     z *= BOHR_TO_ANGSTROM
-                atoms.append(
-                    Atom(element=get_element(symbol), position=np.array([x, y, z]))
-                )
+                atoms.append(Atom(element=get_element(symbol), position=np.array([x, y, z])))
 
     mol = Molecule(atoms=atoms, bonds=[])
     mol.detect_bonds()
@@ -122,11 +120,13 @@ def evaluate_mo(
     mo_vals = ao @ mo_vec
 
     origin = min_c  # Bohr
-    axes = np.diag([
-        (max_c[0] - min_c[0]) / (nx - 1),
-        (max_c[1] - min_c[1]) / (ny - 1),
-        (max_c[2] - min_c[2]) / (nz - 1),
-    ])
+    axes = np.diag(
+        [
+            (max_c[0] - min_c[0]) / (nx - 1),
+            (max_c[1] - min_c[1]) / (ny - 1),
+            (max_c[2] - min_c[2]) / (nz - 1),
+        ]
+    )
 
     return CubeData(
         molecule=molden_data.molecule,

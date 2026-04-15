@@ -20,3 +20,10 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 moltui = "moltui.app:run"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E741"]

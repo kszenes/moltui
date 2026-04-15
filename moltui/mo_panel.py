@@ -7,7 +7,6 @@ from textual.widgets import DataTable
 
 
 class MOPanel(Widget):
-
     DEFAULT_CSS = """
     MOPanel {
         width: 45;
@@ -72,7 +71,11 @@ class MOPanel(Widget):
         current_row = 0
         for idx, (mo_idx, sym, energy, occ, label) in enumerate(self._mo_data):
             table.add_row(
-                str(mo_idx + 1), sym, f"{energy:.4f}", f"{occ:.1f}", label,
+                str(mo_idx + 1),
+                sym,
+                f"{energy:.4f}",
+                f"{occ:.1f}",
+                label,
                 key=str(mo_idx),
             )
             if mo_idx == self._current_mo:

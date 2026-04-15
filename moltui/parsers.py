@@ -112,6 +112,4 @@ def load_molecule(filepath: str | Path) -> Molecule:
 
         return parse_molden_atoms(filepath)
     else:
-        raise ValueError(
-            f"Unsupported file format: {suffix}. Use .xyz, .cube, or .molden"
-        )
+        raise ValueError(f"Unsupported file format: {suffix}. Use .xyz, .cube, or .molden")

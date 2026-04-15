@@ -14,21 +14,23 @@ from textual.widgets import DataTable, Footer, Header
 from .elements import Molecule
 from .geometry_panel import GeometryPanel
 from .image_renderer import render_scene, rotation_matrix
-from .mo_panel import MOPanel
 from .isosurface import IsosurfaceMesh, extract_isosurfaces
+from .mo_panel import MOPanel
 from .parsers import CubeData, load_molecule, parse_cube_data
-
 
 # Braille dot positions: each cell is 2 wide x 4 tall
 # Bit layout for Unicode braille (U+2800 + bits):
 #   col0: rows 0-2 = bits 0,1,2; row 3 = bit 6
 #   col1: rows 0-2 = bits 3,4,5; row 3 = bit 7
-_BRAILLE_MAP = np.array([
-    [0x01, 0x08],
-    [0x02, 0x10],
-    [0x04, 0x20],
-    [0x40, 0x80],
-], dtype=np.uint8)
+_BRAILLE_MAP = np.array(
+    [
+        [0x01, 0x08],
+        [0x02, 0x10],
+        [0x04, 0x20],
+        [0x40, 0x80],
+    ],
+    dtype=np.uint8,
+)
 
 
 class MoleculeView(Widget):
@@ -54,7 +56,9 @@ class MoleculeView(Widget):
         self._cached_strips: list[Strip] = []
         self._cached_size: tuple[int, int] = (0, 0)
 
-    def set_molecule(self, molecule: Molecule, isosurfaces: list[IsosurfaceMesh] | None = None) -> None:
+    def set_molecule(
+        self, molecule: Molecule, isosurfaces: list[IsosurfaceMesh] | None = None
+    ) -> None:
         self.molecule = molecule
         self.isosurfaces = isosurfaces or []
         mol_radius = molecule.radius()
@@ -100,8 +104,14 @@ class MoleculeView(Widget):
         isos = self.isosurfaces if self.show_orbitals else None
         hl = self.highlighted_atoms if self.highlighted_atoms else None
         pixels = render_scene(
-            px_w, px_h, mol, rot, self.camera_distance,
-            bg_color=bg, isosurfaces=isos, ssaa=1,
+            px_w,
+            px_h,
+            mol,
+            rot,
+            self.camera_distance,
+            bg_color=bg,
+            isosurfaces=isos,
+            ssaa=1,
             pan=(self.pan_x, self.pan_y),
             highlighted_atoms=hl,
         )
@@ -237,10 +247,9 @@ class MoltuiApp(App):
         view.focus()
 
     def _panel_is_open(self) -> bool:
-        return (
-            self.query_one(GeometryPanel).has_class("visible")
-            or self.query_one(MOPanel).has_class("visible")
-        )
+        return self.query_one(GeometryPanel).has_class("visible") or self.query_one(
+            MOPanel
+        ).has_class("visible")
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action in ("toggle_orbitals", "toggle_mo_panel", "next_mo", "prev_mo"):
@@ -258,18 +267,15 @@ class MoltuiApp(App):
             energy = md.mo_energies[self.current_mo]
             occ = md.mo_occupations[self.current_mo]
             sym = (
-                md.mo_symmetries[self.current_mo]
-                if self.current_mo < len(md.mo_symmetries)
-                else ""
+                md.mo_symmetries[self.current_mo] if self.current_mo < len(md.mo_symmetries) else ""
             )
             homo_label = ""
             if self.current_mo == md.homo_idx:
                 homo_label = " HOMO"
             elif self.current_mo == md.homo_idx + 1:
                 homo_label = " LUMO"
-            parts.append(
-                f"MO {self.current_mo + 1}/{md.n_mos} {sym}{homo_label} E={energy:.4f} occ={occ:.1f}"
-            )
+            mo_str = f"MO {self.current_mo + 1}/{md.n_mos}"
+            parts.append(f"{mo_str} {sym}{homo_label} E={energy:.4f} occ={occ:.1f}")
         return " | ".join(parts)
 
     def _update_title(self) -> None:

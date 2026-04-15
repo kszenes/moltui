@@ -201,12 +201,7 @@ class ImageRenderer:
         is_first_half = step_idx <= half
 
         # Bounds check
-        valid = (
-            (flat_px >= 0)
-            & (flat_px < self.width)
-            & (flat_py >= 0)
-            & (flat_py < self.height)
-        )
+        valid = (flat_px >= 0) & (flat_px < self.width) & (flat_py >= 0) & (flat_py < self.height)
         flat_px, flat_py, flat_pz, flat_int, is_first_half = (
             flat_px[valid],
             flat_py[valid],
@@ -261,11 +256,13 @@ class ImageRenderer:
         valid_z = transformed[:, 2] > 0.1
         z = transformed[:, 2]
         safe_z = np.where(valid_z, z, 1.0)
-        projected = np.column_stack([
-            self.width / 2 + transformed[:, 0] * self.fov / safe_z * scale,
-            self.height / 2 - transformed[:, 1] * self.fov / safe_z * scale,
-            z,
-        ])
+        projected = np.column_stack(
+            [
+                self.width / 2 + transformed[:, 0] * self.fov / safe_z * scale,
+                self.height / 2 - transformed[:, 1] * self.fov / safe_z * scale,
+                z,
+            ]
+        )
 
         faces = mesh.faces
         # Vectorized: check all vertices visible
@@ -280,8 +277,9 @@ class ImageRenderer:
         s2 = projected[faces[:, 2]]
 
         # Vectorized backface cull
-        cross = (s1[:, 0] - s0[:, 0]) * (s2[:, 1] - s0[:, 1]) - \
-                (s1[:, 1] - s0[:, 1]) * (s2[:, 0] - s0[:, 0])
+        cross = (s1[:, 0] - s0[:, 0]) * (s2[:, 1] - s0[:, 1]) - (s1[:, 1] - s0[:, 1]) * (
+            s2[:, 0] - s0[:, 0]
+        )
         front = cross > 0
         faces = faces[front]
         s0, s1, s2 = s0[front], s1[front], s2[front]
@@ -294,10 +292,20 @@ class ImageRenderer:
         n2 = rot_normals[faces[:, 2]]
 
         # Vectorized bounding boxes
-        x_mins = np.maximum(0, np.floor(np.minimum(s0[:, 0], np.minimum(s1[:, 0], s2[:, 0]))).astype(int))
-        x_maxs = np.minimum(self.width - 1, np.ceil(np.maximum(s0[:, 0], np.maximum(s1[:, 0], s2[:, 0]))).astype(int))
-        y_mins = np.maximum(0, np.floor(np.minimum(s0[:, 1], np.minimum(s1[:, 1], s2[:, 1]))).astype(int))
-        y_maxs = np.minimum(self.height - 1, np.ceil(np.maximum(s0[:, 1], np.maximum(s1[:, 1], s2[:, 1]))).astype(int))
+        x_mins = np.maximum(
+            0, np.floor(np.minimum(s0[:, 0], np.minimum(s1[:, 0], s2[:, 0]))).astype(int)
+        )
+        x_maxs = np.minimum(
+            self.width - 1,
+            np.ceil(np.maximum(s0[:, 0], np.maximum(s1[:, 0], s2[:, 0]))).astype(int),
+        )
+        y_mins = np.maximum(
+            0, np.floor(np.minimum(s0[:, 1], np.minimum(s1[:, 1], s2[:, 1]))).astype(int)
+        )
+        y_maxs = np.minimum(
+            self.height - 1,
+            np.ceil(np.maximum(s0[:, 1], np.maximum(s1[:, 1], s2[:, 1]))).astype(int),
+        )
 
         # Filter degenerate bboxes
         bbox_valid = (x_mins <= x_maxs) & (y_mins <= y_maxs)
@@ -311,8 +319,9 @@ class ImageRenderer:
         n_faces = len(idx)
 
         # Barycentric denominators (per face)
-        denom = (s1[:, 1] - s2[:, 1]) * (s0[:, 0] - s2[:, 0]) + \
-                (s2[:, 0] - s1[:, 0]) * (s0[:, 1] - s2[:, 1])
+        denom = (s1[:, 1] - s2[:, 1]) * (s0[:, 0] - s2[:, 0]) + (s2[:, 0] - s1[:, 0]) * (
+            s0[:, 1] - s2[:, 1]
+        )
         denom_valid = np.abs(denom) > 1e-10
         if not denom_valid.any():
             return
@@ -337,8 +346,9 @@ class ImageRenderer:
         cumsum = np.empty(n_faces + 1, dtype=np.int64)
         cumsum[0] = 0
         np.cumsum(n_pixels, out=cumsum[1:])
-        local_idx = np.arange(total_pixels, dtype=np.int32) - \
-                     np.repeat(cumsum[:-1].astype(np.int32), n_pixels)
+        local_idx = np.arange(total_pixels, dtype=np.int32) - np.repeat(
+            cumsum[:-1].astype(np.int32), n_pixels
+        )
         w_rep = np.repeat(widths.astype(np.int32), n_pixels)
         all_x = np.repeat(x_mins.astype(np.int32), n_pixels) + (local_idx % w_rep)
         all_y = np.repeat(y_mins.astype(np.int32), n_pixels) + (local_idx // w_rep)
@@ -371,11 +381,15 @@ class ImageRenderer:
         px_i = all_x[inside]
         py_i = all_y[inside]
         fi_i = fi[inside]
-        w0_i = w0[inside]; w1_i = w1[inside]; w2_i = w2[inside]
+        w0_i = w0[inside]
+        w1_i = w1[inside]
+        w2_i = w2[inside]
 
-        tri_z = w0_i * s0[fi_i, 2].astype(np.float32) + \
-                w1_i * s1[fi_i, 2].astype(np.float32) + \
-                w2_i * s2[fi_i, 2].astype(np.float32)
+        tri_z = (
+            w0_i * s0[fi_i, 2].astype(np.float32)
+            + w1_i * s1[fi_i, 2].astype(np.float32)
+            + w2_i * s2[fi_i, 2].astype(np.float32)
+        )
 
         z_pass = tri_z < self.z_buf[py_i, px_i]
         if not z_pass.any():
@@ -384,7 +398,9 @@ class ImageRenderer:
         px_f = px_i[z_pass]
         py_f = py_i[z_pass]
         fi_f = fi_i[z_pass]
-        w0_f = w0_i[z_pass]; w1_f = w1_i[z_pass]; w2_f = w2_i[z_pass]
+        w0_f = w0_i[z_pass]
+        w1_f = w1_i[z_pass]
+        w2_f = w2_i[z_pass]
         tri_z_f = tri_z[z_pass]
 
         # Interpolate normals and shade (only for z-passing pixels)
@@ -392,7 +408,9 @@ class ImageRenderer:
         iny = w0_f * n0[fi_f, 1] + w1_f * n1[fi_f, 1] + w2_f * n2[fi_f, 1]
         inz = w0_f * n0[fi_f, 2] + w1_f * n1[fi_f, 2] + w2_f * n2[fi_f, 2]
         in_len = np.sqrt(inx * inx + iny * iny + inz * inz) + 1e-10
-        inx /= in_len; iny /= in_len; inz /= in_len
+        inx /= in_len
+        iny /= in_len
+        inz /= in_len
 
         # Flip normals facing away from camera
         flip = inz > 0
@@ -401,10 +419,12 @@ class ImageRenderer:
         inz = np.where(flip, -inz, inz)
 
         # Blinn-Phong lighting
-        n_dot_l = np.maximum(0.0,
-            inx * self.light_dir[0] + iny * self.light_dir[1] + inz * self.light_dir[2])
-        n_dot_h = np.maximum(0.0,
-            inx * self.half_vec[0] + iny * self.half_vec[1] + inz * self.half_vec[2])
+        n_dot_l = np.maximum(
+            0.0, inx * self.light_dir[0] + iny * self.light_dir[1] + inz * self.light_dir[2]
+        )
+        n_dot_h = np.maximum(
+            0.0, inx * self.half_vec[0] + iny * self.half_vec[1] + inz * self.half_vec[2]
+        )
         specular = np.power(n_dot_h, self.shininess) * self.specular_strength
         intensity = np.minimum(1.0, self.ambient + n_dot_l * self.diffuse_strength)
 
@@ -496,13 +516,16 @@ def render_scene(
 ) -> np.ndarray:
     """Render with supersampling anti-aliasing. Returns (height, width, 3) uint8."""
     r = ImageRenderer(width * ssaa, height * ssaa, bg_color=bg_color)
-    r.render_molecule(molecule, rot, camera_distance, isosurfaces=isosurfaces, pan=pan, highlighted_atoms=highlighted_atoms)
+    r.render_molecule(
+        molecule,
+        rot,
+        camera_distance,
+        isosurfaces=isosurfaces,
+        pan=pan,
+        highlighted_atoms=highlighted_atoms,
+    )
     if ssaa == 1:
         return r.pixels
     # Box-filter downsample
-    downsampled = (
-        r.pixels.reshape(height, ssaa, width, ssaa, 3)
-        .mean(axis=(1, 3))
-        .astype(np.uint8)
-    )
+    downsampled = r.pixels.reshape(height, ssaa, width, ssaa, 3).mean(axis=(1, 3)).astype(np.uint8)
     return downsampled

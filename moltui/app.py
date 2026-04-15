@@ -16,7 +16,7 @@ from .geometry_panel import GeometryPanel
 from .image_renderer import render_scene, rotation_matrix
 from .isosurface import IsosurfaceMesh, extract_isosurfaces
 from .mo_panel import MOPanel
-from .parsers import CubeData, load_molecule, parse_cube_data
+from .parsers import load_molecule, parse_cube_data
 
 # Braille dot positions: each cell is 2 wide x 4 tall
 # Bit layout for Unicode braille (U+2800 + bits):
@@ -210,7 +210,6 @@ class MoltuiApp(App):
         isosurfaces: list[IsosurfaceMesh] | None = None,
         molden_data=None,
         current_mo: int = 0,
-        cube_data: CubeData | None = None,
     ):
         super().__init__()
         self.molecule = molecule
@@ -218,7 +217,6 @@ class MoltuiApp(App):
         self._isosurfaces = isosurfaces or []
         self.molden_data = molden_data
         self.current_mo = current_mo
-        self.cube_data = cube_data
         self.title = self._title_text()
 
     def compose(self) -> ComposeResult:
@@ -280,10 +278,6 @@ class MoltuiApp(App):
 
     def _update_title(self) -> None:
         self.title = self._title_text()
-
-    def _refresh_view(self) -> None:
-        view = self.query_one(MoleculeView)
-        view._invalidate_cache()
 
     def action_rotate_up(self) -> None:
         view = self.query_one(MoleculeView)

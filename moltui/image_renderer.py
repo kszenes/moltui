@@ -442,10 +442,6 @@ class ImageRenderer:
         self.pixels[py_f, px_f] = shaded[order]
 
     @staticmethod
-    def _dim_color(c: tuple[int, int, int], factor: float = 0.25) -> tuple[int, int, int]:
-        return (int(c[0] * factor), int(c[1] * factor), int(c[2] * factor))
-
-    @staticmethod
     def _highlight_color() -> tuple[int, int, int]:
         return (255, 255, 50)
 

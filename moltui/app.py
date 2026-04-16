@@ -391,7 +391,7 @@ class MoltuiApp(App):
             view.pan_x += view.camera_distance * 0.05
             view._clamp_pan()
         else:
-            view.rot_matrix = rotation_matrix(0, -0.1, 0) @ view.rot_matrix
+            view.rot_matrix = rotation_matrix(0, 0.1, 0) @ view.rot_matrix
         view._invalidate_cache()
 
     def action_rotate_right(self) -> None:
@@ -400,7 +400,7 @@ class MoltuiApp(App):
             view.pan_x -= view.camera_distance * 0.05
             view._clamp_pan()
         else:
-            view.rot_matrix = rotation_matrix(0, 0.1, 0) @ view.rot_matrix
+            view.rot_matrix = rotation_matrix(0, -0.1, 0) @ view.rot_matrix
         view._invalidate_cache()
 
     def action_rotate_cw(self) -> None:

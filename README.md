@@ -40,6 +40,12 @@ The `e` **exports** the current **scene** to a **PNG**.
 
 <img width="800" height="600" alt="benzene_hf 021" src="https://github.com/user-attachments/assets/2ca67320-9053-4b86-989f-b2abfaca8864" />
 
+### Tune Visuals
+
+The `V` key opens a sidebar where the style and lighting can be modified.
+
+<img width="1162" height="877" alt="image" src="https://github.com/user-attachments/assets/90b1bdc4-05bd-4e7e-b34c-5ff876972a72" />
+
 ## Supported formats
 
 ### Structures

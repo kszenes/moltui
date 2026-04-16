@@ -51,9 +51,7 @@ class MoleculeView(Widget):
         super().__init__()
         self.molecule: Molecule | None = None
         self.isosurfaces: list[IsosurfaceMesh] = []
-        self.rot_x = 0.5
-        self.rot_y = 0.0
-        self.rot_z = 0.0
+        self.rot_matrix = rotation_matrix(-0.2, -0.5, 0.0)
         self.camera_distance = 4.0
         self.show_bonds = True
         self.show_orbitals = True
@@ -105,7 +103,7 @@ class MoleculeView(Widget):
         px_h = rows * 4
 
         bg = (0, 0, 0) if self.dark_bg else (255, 255, 255)
-        rot = rotation_matrix(self.rot_x, self.rot_y, self.rot_z)
+        rot = self.rot_matrix
 
         mol = self.molecule
         if not self.show_bonds:
@@ -323,7 +321,7 @@ class MoltuiApp(App):
             view.pan_y -= view.camera_distance * 0.05
             view._clamp_pan()
         else:
-            view.rot_x -= 0.1
+            view.rot_matrix = rotation_matrix(-0.1, 0, 0) @ view.rot_matrix
         view._invalidate_cache()
 
     def action_rotate_down(self) -> None:
@@ -332,7 +330,7 @@ class MoltuiApp(App):
             view.pan_y += view.camera_distance * 0.05
             view._clamp_pan()
         else:
-            view.rot_x += 0.1
+            view.rot_matrix = rotation_matrix(0.1, 0, 0) @ view.rot_matrix
         view._invalidate_cache()
 
     def action_rotate_left(self) -> None:
@@ -341,7 +339,7 @@ class MoltuiApp(App):
             view.pan_x += view.camera_distance * 0.05
             view._clamp_pan()
         else:
-            view.rot_y -= 0.1
+            view.rot_matrix = rotation_matrix(0, -0.1, 0) @ view.rot_matrix
         view._invalidate_cache()
 
     def action_rotate_right(self) -> None:
@@ -350,17 +348,17 @@ class MoltuiApp(App):
             view.pan_x -= view.camera_distance * 0.05
             view._clamp_pan()
         else:
-            view.rot_y += 0.1
+            view.rot_matrix = rotation_matrix(0, 0.1, 0) @ view.rot_matrix
         view._invalidate_cache()
 
     def action_rotate_cw(self) -> None:
         view = self.query_one(MoleculeView)
-        view.rot_z += 0.1
+        view.rot_matrix = rotation_matrix(0, 0, 0.1) @ view.rot_matrix
         view._invalidate_cache()
 
     def action_rotate_ccw(self) -> None:
         view = self.query_one(MoleculeView)
-        view.rot_z -= 0.1
+        view.rot_matrix = rotation_matrix(0, 0, -0.1) @ view.rot_matrix
         view._invalidate_cache()
 
     def action_zoom_in(self) -> None:
@@ -408,9 +406,7 @@ class MoltuiApp(App):
 
     def action_reset_view(self) -> None:
         view = self.query_one(MoleculeView)
-        view.rot_x = 0.5
-        view.rot_y = 0.0
-        view.rot_z = 0.0
+        view.rot_matrix = rotation_matrix(-0.2, -0.5, 0.0)
         view.pan_x = 0.0
         view.pan_y = 0.0
         view.pan_mode = False

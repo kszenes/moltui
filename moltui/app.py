@@ -19,6 +19,7 @@ from .image_renderer import render_scene, rotation_matrix
 from .isosurface import IsosurfaceMesh, extract_isosurfaces
 from .mo_panel import MOPanel
 from .parsers import load_molecule, parse_cube_data
+from .visual_panel import VisualPanel
 
 # Braille dot positions: each cell is 2 wide x 4 tall
 # Bit layout for Unicode braille (U+2800 + bits):
@@ -61,6 +62,10 @@ class MoleculeView(Widget):
         self.pan_mode = False
         self.highlighted_atoms: set[int] = set()
         self.licorice = False
+        self.ambient = 0.50
+        self.diffuse = 0.60
+        self.specular = 0.40
+        self.shininess = 32.0
         self._cached_strips: list[Strip] = []
         self._cached_size: tuple[int, int] = (0, 0)
 
@@ -123,6 +128,10 @@ class MoleculeView(Widget):
             pan=(self.pan_x, self.pan_y),
             highlighted_atoms=hl,
             licorice=self.licorice,
+            ambient=self.ambient,
+            diffuse=self.diffuse,
+            specular=self.specular,
+            shininess=self.shininess,
         )
 
         blocks = pixels.reshape(rows, 4, cols, 2, 3)
@@ -233,6 +242,7 @@ class MoltuiApp(App):
         Binding("left_square_bracket", "prev_mo", "[MO", show=False),
         Binding("n", "panel_next", "Next"),
         Binding("p", "panel_prev", "Prev"),
+        Binding("s", "toggle_visual", "Visual"),
     ]
 
     def __init__(
@@ -260,6 +270,7 @@ class MoltuiApp(App):
             yield MoleculeView()
             yield GeometryPanel()
             yield MOPanel()
+            yield VisualPanel()
         yield Footer()
 
     def on_mount(self) -> None:
@@ -280,9 +291,11 @@ class MoltuiApp(App):
         view.focus()
 
     def _panel_is_open(self) -> bool:
-        return self.query_one(GeometryPanel).has_class("visible") or self.query_one(
-            MOPanel
-        ).has_class("visible")
+        return (
+            self.query_one(GeometryPanel).has_class("visible")
+            or self.query_one(MOPanel).has_class("visible")
+            or self.query_one(VisualPanel).has_class("visible")
+        )
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action in ("toggle_orbitals", "toggle_mo_panel", "next_mo", "prev_mo"):
@@ -386,6 +399,15 @@ class MoltuiApp(App):
     def action_toggle_style(self) -> None:
         view = self.query_one(MoleculeView)
         view.licorice = not view.licorice
+        vis = self.query_one(VisualPanel)
+        if vis.has_class("visible"):
+            vis.set_state(
+                licorice=view.licorice,
+                ambient=view.ambient,
+                diffuse=view.diffuse,
+                specular=view.specular,
+                shininess=view.shininess,
+            )
         view._invalidate_cache()
 
     def action_toggle_bonds(self) -> None:
@@ -453,11 +475,14 @@ class MoltuiApp(App):
         view = self.query_one(MoleculeView)
         geom = self.query_one(GeometryPanel)
         mo = self.query_one(MOPanel)
+        vis = self.query_one(VisualPanel)
         if geom.has_class("visible"):
             geom.remove_class("visible")
             view.highlighted_atoms = set()
         if mo.has_class("visible"):
             mo.remove_class("visible")
+        if vis.has_class("visible"):
+            vis.remove_class("visible")
 
     def action_toggle_geometry(self) -> None:
         panel = self.query_one(GeometryPanel)
@@ -493,6 +518,41 @@ class MoltuiApp(App):
                 break
         else:
             view.focus()
+        view._invalidate_cache()
+
+    def action_toggle_visual(self) -> None:
+        vis = self.query_one(VisualPanel)
+        was_visible = vis.has_class("visible")
+        self._close_panels()
+        view = self.query_one(MoleculeView)
+        if not was_visible:
+            vis.set_state(
+                licorice=view.licorice,
+                ambient=view.ambient,
+                diffuse=view.diffuse,
+                specular=view.specular,
+                shininess=view.shininess,
+            )
+            vis.add_class("visible")
+            for child in vis.query("*"):
+                if child.can_focus:
+                    child.focus()
+                    break
+        else:
+            view.focus()
+        view._invalidate_cache()
+
+    def on_visual_panel_style_changed(self, event: VisualPanel.StyleChanged) -> None:
+        view = self.query_one(MoleculeView)
+        view.licorice = event.licorice
+        view._invalidate_cache()
+
+    def on_visual_panel_lighting_changed(self, event: VisualPanel.LightingChanged) -> None:
+        view = self.query_one(MoleculeView)
+        view.ambient = event.ambient
+        view.diffuse = event.diffuse
+        view.specular = event.specular
+        view.shininess = event.shininess
         view._invalidate_cache()
 
     def on_mopanel_moselected(self, event: MOPanel.MOSelected) -> None:

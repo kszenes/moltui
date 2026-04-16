@@ -518,6 +518,10 @@ def render_scene(
     pan: tuple[float, float] = (0.0, 0.0),
     highlighted_atoms: set[int] | None = None,
     licorice: bool = False,
+    ambient: float | None = None,
+    diffuse: float | None = None,
+    specular: float | None = None,
+    shininess: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Render with supersampling anti-aliasing.
 
@@ -525,6 +529,14 @@ def render_scene(
     and hit_mask is (height, width) bool indicating which pixels were drawn.
     """
     r = ImageRenderer(width * ssaa, height * ssaa, bg_color=bg_color)
+    if ambient is not None:
+        r.ambient = ambient
+    if diffuse is not None:
+        r.diffuse_strength = diffuse
+    if specular is not None:
+        r.specular_strength = specular
+    if shininess is not None:
+        r.shininess = shininess
     r.render_molecule(
         molecule,
         rot,

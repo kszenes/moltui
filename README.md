@@ -1,14 +1,10 @@
 # moltui
 
-<img width="300" height="300" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
+<img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
 
-Terminal-based 3D molecular viewer.
+**Terminal-based 3D molecular viewer**.
 
 ## Installation
-
-```bash
-pip install moltui
-```
 
 ```bash
 pip install moltui
@@ -21,28 +17,46 @@ moltui <file>
 ```
 
 
+
+## Features
+
+### Visualize Orbitals
+
+The displaying of orbitals can be toggled via `o`.
+Molden and GBW files can contain multiple molecular orbitals.
+Toggle the orbital side bar with `m`.
+Cycle through MOs with `n`ext and `p`rev.
+
+<img width="1512" height="926" alt="image" src="https://github.com/user-attachments/assets/4c1743ba-aff0-4683-92a7-7ebfaa361258" />
+
+### Analyze Geometry
+
+Bond lengths, angles and dihedrals can be viewed using the `g`eomtry key which opens a sidebar.
+Navigate between tabs via `<tab>`.
+The quantity is highlighted in yellow on the molecule.
+The quantity can be sorted in ascending order via `s`.
+Toggle atom indices via `#`
+
+<img width="1510" height="923" alt="image" src="https://github.com/user-attachments/assets/8a6dab9a-d377-4d16-bfe1-89c83d0763a1" />
+
+### Export to PNG Format
+
+The `e` exports the current scene to a PNG.
+
+<img width="800" height="600" alt="benzene_hf 021" src="https://github.com/user-attachments/assets/2ca67320-9053-4b86-989f-b2abfaca8864" />
+
 ## Supported formats
 
 ### Structures
+
 - XYZ
 - Gaussian Zmat
 
 ### Structures and Orbitals
+
 - Gaussian Cube
 - Molden
 - ORCA GBW (requires `orca_2mkl` in ``)
-
-## Features
-
-- 3D molecule visualization using Unicode braille characters
-- Molecular orbital isosurfaces (positive/negative lobes)
-- Geometry panel with bond lengths, angles, and dihedrals
-- MO browser with energies, occupations, and symmetry labels
-- Real-time rotation, zoom, and panning
-- Dark and light themes
-
-### Light and Dark Mode
-
 
 ## Keybindings
 

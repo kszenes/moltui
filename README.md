@@ -36,7 +36,7 @@ moltui <file>
 
 ### Export to PNG Format
 
-The `e` **exports** the current **scene** to a **PNG**.
+The `e` key **exports** the current **scene** to a **PNG**.
 
 <img width="800" height="600" alt="benzene_hf 021" src="https://github.com/user-attachments/assets/2ca67320-9053-4b86-989f-b2abfaca8864" />
 

@@ -1,4 +1,4 @@
-# moltui
+# MolTUI
 
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
 

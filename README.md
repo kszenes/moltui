@@ -59,48 +59,45 @@ The `e` **exports** the current **scene** to a **PNG**.
 
 | Key | Action |
 |-----|--------|
-| `h/j/k/l` or arrows | Rotate left/down/up/right |
-| `,/.` | Roll clockwise/counter-clockwise |
-| `J/K` or `+/-` | Zoom out/in |
-| `t` | Toggle pan/rotation mode |
-| `c` | Center view |
-| `r` | Reset view |
+| `h/j/k/l` or arrows | **Rotate** left/down/up/right |
+| `,/.` | **Roll** clockwise/counter-clockwise |
+| `J/K` or `+/-` | **Zoom** out/in |
+| `t` | Toggle **pan/rotation** mode |
+| `c` | **Center** view |
+| `r` | **Reset** view |
 
 ### Display
 
 | Key | Action |
 |-----|--------|
-| `o` | Toggle orbital isosurfaces |
-| `i` | Toggle dark/light background |
-| `b` | Toggle bonds |
-| `e` | Export PNG |
-| `v` | Toggle CPK/licorice style |
-| `#` | Toggle atom numbers |
+| `o` | Toggle **orbital isosurfaces** |
+| `i` | Toggle **dark/light** theme |
+| `b` | Toggle **bonds** |
+| `e` | **Export** PNG |
+| `v` | Toggle CPK/licorice **style** |
+| `#` | Toggle **atom numbers** |
 
 ### Panels
 
 | Key | Action |
 |-----|--------|
-| `g` | Geometry panel (bonds, angles, dihedrals) |
-| `m` | MO panel (molecular orbitals) |
-| `V` | Visual settings panel (style, sizes, lighting) |
-| `[`, `]` | Previous/next MO |
-| `n/p` | Navigate panel entries |
-| `Esc` | Close panel |
+| `g` | **Geometry** panel (bonds, angles, dihedrals) |
+| `m` | **MO** panel (molecular orbitals) |
+| `V` | **Visual settings** panel (style, sizes, lighting) |
+| `[`, `]` | **Previous/next** MO |
+| `n/p` | **Navigate** panel entries |
+| `Esc` | **Close** panel |
 
 ### Visual panel
 
 | Key | Action |
 |-----|--------|
-| `n/p` | Move between controls |
-| `Tab/Shift+Tab` | Adjust value (slider) or switch option (style) |
+| `n/p` | **Move** between controls |
+| `Tab/Shift+Tab` | **Adjust value** (slider) or **switch option** (style) |
 
 ### General
 
 | Key | Action |
 |-----|--------|
-| `q` | Quit |
+| `q` | **Quit** |
 
-## License
-
-MIT

@@ -63,6 +63,8 @@ class MoleculeView(Widget):
         self.highlighted_atoms: set[int] = set()
         self.show_atom_numbers = False
         self.licorice = False
+        self.atom_scale = 0.35
+        self.bond_radius = 0.08
         self.ambient = 0.50
         self.diffuse = 0.60
         self.specular = 0.40
@@ -133,6 +135,8 @@ class MoleculeView(Widget):
             diffuse=self.diffuse,
             specular=self.specular,
             shininess=self.shininess,
+            atom_scale=self.atom_scale,
+            bond_radius=self.bond_radius,
         )
 
         blocks = pixels.reshape(rows, 4, cols, 2, 3)
@@ -276,7 +280,7 @@ class MoltuiApp(App):
         Binding("number_sign", "toggle_atom_numbers", "#Nums"),
         Binding("n", "panel_next", "Next"),
         Binding("p", "panel_prev", "Prev"),
-        Binding("s", "toggle_visual", "Visual"),
+        Binding("V", "toggle_visual", "Visual"),
     ]
 
     def __init__(
@@ -433,6 +437,7 @@ class MoltuiApp(App):
     def action_toggle_style(self) -> None:
         view = self.query_one(MoleculeView)
         view.licorice = not view.licorice
+        view.bond_radius = 0.15 if view.licorice else 0.08
         vis = self.query_one(VisualPanel)
         if vis.has_class("visible"):
             vis.set_state(
@@ -441,6 +446,8 @@ class MoltuiApp(App):
                 diffuse=view.diffuse,
                 specular=view.specular,
                 shininess=view.shininess,
+                atom_scale=view.atom_scale,
+                bond_radius=view.bond_radius,
             )
         view._invalidate_cache()
 
@@ -491,11 +498,17 @@ class MoltuiApp(App):
         return None
 
     def action_panel_next(self) -> None:
+        if self.query_one(VisualPanel).has_class("visible"):
+            self.screen.focus_next()
+            return
         dt = self._active_panel_table()
         if dt is not None:
             dt.action_cursor_down()
 
     def action_panel_prev(self) -> None:
+        if self.query_one(VisualPanel).has_class("visible"):
+            self.screen.focus_previous()
+            return
         dt = self._active_panel_table()
         if dt is not None:
             dt.action_cursor_up()
@@ -503,7 +516,8 @@ class MoltuiApp(App):
     def action_close_panel(self) -> None:
         geom = self.query_one(GeometryPanel)
         mo = self.query_one(MOPanel)
-        if geom.has_class("visible") or mo.has_class("visible"):
+        vis = self.query_one(VisualPanel)
+        if geom.has_class("visible") or mo.has_class("visible") or vis.has_class("visible"):
             self._close_panels()
             view = self.query_one(MoleculeView)
             view._invalidate_cache()
@@ -571,6 +585,8 @@ class MoltuiApp(App):
                 diffuse=view.diffuse,
                 specular=view.specular,
                 shininess=view.shininess,
+                atom_scale=view.atom_scale,
+                bond_radius=view.bond_radius,
             )
             vis.add_class("visible")
             for child in vis.query("*"):
@@ -584,6 +600,19 @@ class MoltuiApp(App):
     def on_visual_panel_style_changed(self, event: VisualPanel.StyleChanged) -> None:
         view = self.query_one(MoleculeView)
         view.licorice = event.licorice
+        # Switch bond_radius to a sensible default for the style
+        view.bond_radius = 0.15 if event.licorice else 0.08
+        vis = self.query_one(VisualPanel)
+        if vis.has_class("visible"):
+            vis.set_state(
+                licorice=view.licorice,
+                ambient=view.ambient,
+                diffuse=view.diffuse,
+                specular=view.specular,
+                shininess=view.shininess,
+                atom_scale=view.atom_scale,
+                bond_radius=view.bond_radius,
+            )
         view._invalidate_cache()
 
     def on_visual_panel_lighting_changed(self, event: VisualPanel.LightingChanged) -> None:
@@ -592,6 +621,12 @@ class MoltuiApp(App):
         view.diffuse = event.diffuse
         view.specular = event.specular
         view.shininess = event.shininess
+        view._invalidate_cache()
+
+    def on_visual_panel_size_changed(self, event: VisualPanel.SizeChanged) -> None:
+        view = self.query_one(MoleculeView)
+        view.atom_scale = event.atom_scale
+        view.bond_radius = event.bond_radius
         view._invalidate_cache()
 
     def on_mopanel_moselected(self, event: MOPanel.MOSelected) -> None:

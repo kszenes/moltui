@@ -478,10 +478,6 @@ class ImageRenderer:
             pos[2] += camera_distance
             transformed.append(pos)
 
-        saved_bond_radius = self.bond_radius
-        if licorice:
-            self.bond_radius = 0.15
-
         for i, j in molecule.bonds:
             c1 = molecule.atoms[i].element.cpk_color
             c2 = molecule.atoms[j].element.cpk_color
@@ -489,8 +485,6 @@ class ImageRenderer:
                 c1 = self._highlight_color()
                 c2 = self._highlight_color()
             self.render_bond(transformed[i], transformed[j], c1, c2)
-
-        self.bond_radius = saved_bond_radius
 
         atom_order = sorted(
             range(len(molecule.atoms)),
@@ -522,6 +516,8 @@ def render_scene(
     diffuse: float | None = None,
     specular: float | None = None,
     shininess: float | None = None,
+    atom_scale: float | None = None,
+    bond_radius: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Render with supersampling anti-aliasing.
 
@@ -537,6 +533,10 @@ def render_scene(
         r.specular_strength = specular
     if shininess is not None:
         r.shininess = shininess
+    if atom_scale is not None:
+        r.atom_scale = atom_scale
+    if bond_radius is not None:
+        r.bond_radius = bond_radius
     r.render_molecule(
         molecule,
         rot,

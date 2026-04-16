@@ -8,28 +8,28 @@ from textual.widgets import Label, RadioButton, RadioSet, Static
 
 
 class _NavRadioSet(RadioSet):
-    """RadioSet with j/k/tab navigation."""
+    """RadioSet where tab/shift+tab cycle and activate options."""
 
     BINDINGS = [
-        *RadioSet.BINDINGS,
-        Binding("j", "next_button", show=False),
-        Binding("k", "previous_button", show=False),
-        Binding("tab", "jump_to_lighting", show=False),
+        Binding("tab", "next_and_toggle", "Next", show=False),
+        Binding("shift+tab", "prev_and_toggle", "Prev", show=False),
     ]
 
-    def action_jump_to_lighting(self) -> None:
-        self.screen.query_one(VisualPanel).query_one(Slider).focus()
+    def action_next_and_toggle(self) -> None:
+        self.action_next_button()
+        self.action_toggle_button()
+
+    def action_prev_and_toggle(self) -> None:
+        self.action_previous_button()
+        self.action_toggle_button()
 
 
 class Slider(Static, can_focus=True):
-    """Minimal horizontal slider using keyboard left/right."""
+    """Minimal horizontal slider. Tab/Shift+Tab adjust value."""
 
     BINDINGS = [
-        Binding("left,h", "decrease", "Decrease", show=False),
-        Binding("right,l", "increase", "Increase", show=False),
-        Binding("up,k", "focus_prev", "Prev", show=False),
-        Binding("down,j", "focus_next", "Next", show=False),
-        Binding("tab", "jump_to_style", "Style", show=False),
+        Binding("tab", "increase", "Increase", show=False),
+        Binding("shift+tab", "decrease", "Decrease", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -88,15 +88,6 @@ class Slider(Static, can_focus=True):
     def action_increase(self) -> None:
         self._adjust(self.step)
 
-    def action_focus_prev(self) -> None:
-        self.screen.focus_previous()
-
-    def action_focus_next(self) -> None:
-        self.screen.focus_next()
-
-    def action_jump_to_style(self) -> None:
-        self.screen.query_one(_NavRadioSet).focus()
-
 
 class VisualPanel(Widget):
     DEFAULT_CSS = """
@@ -117,6 +108,12 @@ class VisualPanel(Widget):
     VisualPanel RadioSet {
         height: auto;
         margin-bottom: 1;
+    }
+    VisualPanel #visual-help {
+        dock: bottom;
+        height: auto;
+        color: $text-muted;
+        margin-top: 1;
     }
     """
 
@@ -139,6 +136,12 @@ class VisualPanel(Widget):
             self.specular = specular
             self.shininess = shininess
 
+    class SizeChanged(Message):
+        def __init__(self, atom_scale: float, bond_radius: float) -> None:
+            super().__init__()
+            self.atom_scale = atom_scale
+            self.bond_radius = bond_radius
+
     def __init__(self) -> None:
         super().__init__()
         self._licorice = False
@@ -151,6 +154,8 @@ class VisualPanel(Widget):
         diffuse: float,
         specular: float,
         shininess: float,
+        atom_scale: float,
+        bond_radius: float,
     ) -> None:
         self._licorice = licorice
         if self.is_mounted:
@@ -159,6 +164,8 @@ class VisualPanel(Widget):
                 diffuse=diffuse,
                 specular=specular,
                 shininess=shininess,
+                atom_scale=atom_scale,
+                bond_radius=bond_radius,
             )
 
     def _sync_widgets(
@@ -168,14 +175,19 @@ class VisualPanel(Widget):
         diffuse: float,
         specular: float,
         shininess: float,
+        atom_scale: float,
+        bond_radius: float,
     ) -> None:
         radio_set = self.query_one(_NavRadioSet)
         idx = 1 if self._licorice else 0
         radio_set.query(RadioButton)[idx].value = True
+        self.query_one("#slider-atom-scale", Slider).value = atom_scale
+        self.query_one("#slider-bond-radius", Slider).value = bond_radius
         self.query_one("#slider-ambient", Slider).value = ambient
         self.query_one("#slider-diffuse", Slider).value = diffuse
         self.query_one("#slider-specular", Slider).value = specular
         self.query_one("#slider-shininess", Slider).value = shininess
+        self._update_atom_scale_visibility()
         self.refresh()
 
     def compose(self) -> ComposeResult:
@@ -183,6 +195,22 @@ class VisualPanel(Widget):
         with _NavRadioSet():
             yield RadioButton("CPK (ball & stick)", value=True, id="radio-cpk")
             yield RadioButton("Licorice", id="radio-licorice")
+        yield Label("Sizes")
+        yield Slider(
+            "Atom scale",
+            value=0.35,
+            min_val=0.10,
+            max_val=1.00,
+            id="slider-atom-scale",
+        )
+        yield Slider(
+            "Bond radius",
+            value=0.08,
+            min_val=0.02,
+            max_val=0.30,
+            step=0.02,
+            id="slider-bond-radius",
+        )
         yield Label("Lighting")
         yield Slider(
             "Ambient",
@@ -213,21 +241,35 @@ class VisualPanel(Widget):
             step=4.0,
             id="slider-shininess",
         )
+        yield Static(
+            "n/p nav; (shift-)tab toggle",
+            id="visual-help",
+        )
+
+    def _update_atom_scale_visibility(self) -> None:
+        slider = self.query_one("#slider-atom-scale", Slider)
+        slider.display = not self._licorice
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         self._licorice = event.pressed.id == "radio-licorice"
+        self._update_atom_scale_visibility()
         self.post_message(self.StyleChanged(self._licorice))
 
     def on_slider_changed(self, event: Slider.Changed) -> None:
-        ambient = self.query_one("#slider-ambient", Slider).value
-        diffuse = self.query_one("#slider-diffuse", Slider).value
-        specular = self.query_one("#slider-specular", Slider).value
-        shininess = self.query_one("#slider-shininess", Slider).value
-        self.post_message(
-            self.LightingChanged(
-                ambient=ambient,
-                diffuse=diffuse,
-                specular=specular,
-                shininess=shininess,
+        sid = event.slider.id or ""
+        if sid.startswith("slider-atom") or sid.startswith("slider-bond"):
+            self.post_message(
+                self.SizeChanged(
+                    atom_scale=self.query_one("#slider-atom-scale", Slider).value,
+                    bond_radius=self.query_one("#slider-bond-radius", Slider).value,
+                )
             )
-        )
+        else:
+            self.post_message(
+                self.LightingChanged(
+                    ambient=self.query_one("#slider-ambient", Slider).value,
+                    diffuse=self.query_one("#slider-diffuse", Slider).value,
+                    specular=self.query_one("#slider-specular", Slider).value,
+                    shininess=self.query_one("#slider-shininess", Slider).value,
+                )
+            )

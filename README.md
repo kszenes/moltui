@@ -21,16 +21,16 @@ moltui <file>
 ### Visualize Orbitals
 
 - The **rendering** of orbitals can be toggled via `o`.
-- Molden and GBW files can contain **multiple molecular orbitals**. **Toggle** the orbital **sidebar** with `m`. **Cycle** through MOs with `n`ext and `p`rev (or via `[` and `]` even when the sidebar is hidden)
+- Molden and GBW files can contain **multiple molecular orbitals**. **Toggle** the orbital **sidebar** with `m`. **Cycle** through MOs with `n`ext and `p`rev (or via `[` and `]` even when the sidebar is hidden).
 
 <img width="1512" height="926" alt="image" src="https://github.com/user-attachments/assets/4c1743ba-aff0-4683-92a7-7ebfaa361258" />
 
 ### Analyze Geometry
 
 - **Bond lengths, angles and dihedrals** can be viewed using the `g`eomtry key which opens a sidebar. Navigate between tabs via `<tab>`.
-- The quantity is **highlighted in yellow** on the molecule
+- The quantity is **highlighted in yellow** on the molecule.
 - **Sort** the quantity in ascending order via `s`.
-- **Atom indices** can be toggled via `#`
+- **Atom indices** can be toggled via `#`.
 
 <img width="1510" height="923" alt="image" src="https://github.com/user-attachments/assets/8a6dab9a-d377-4d16-bfe1-89c83d0763a1" />
 
@@ -48,8 +48,8 @@ The `V` key opens a sidebar where the style and lighting can be modified.
 
 ## Supported formats
 
-- **Structures Only**: **XYZ**, Gaussian **ZMAT**
-- **Structures and Orbitals**: **Molden**, Gaussian **Cube**, Orca **GBW**¹
+- **Structures Only**: **XYZ**, Gaussian **ZMAT**.
+- **Structures and Orbitals**: **Molden**, Gaussian **Cube**, Orca **GBW**¹.
 
 ¹ Requires `orca_2mkl` in `PATH`
 

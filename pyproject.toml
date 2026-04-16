@@ -43,6 +43,9 @@ build-backend = "hatchling.build"
 [project.scripts]
 moltui = "moltui.app:run"
 
+[tool.hatch.build]
+sources = ["src"]
+
 [tool.hatch.build.targets.sdist]
 exclude = ["archive/", "examples/", "*.png"]
 

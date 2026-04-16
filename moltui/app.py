@@ -277,6 +277,7 @@ class MoltuiApp(App):
         Binding("m", "toggle_mo_panel", "MOs"),
         Binding("right_square_bracket", "next_mo", "MO]", show=False),
         Binding("left_square_bracket", "prev_mo", "[MO", show=False),
+        Binding("e", "export_png", "Export"),
         Binding("number_sign", "toggle_atom_numbers", "#Nums"),
         Binding("n", "panel_next", "Next"),
         Binding("p", "panel_prev", "Prev"),
@@ -482,6 +483,62 @@ class MoltuiApp(App):
         if view.molecule:
             view.camera_distance = max(4.0, view.molecule.radius() * 3.0)
         view._invalidate_cache()
+
+    def action_export_png(self) -> None:
+        view = self.query_one(MoleculeView)
+        if view.molecule is None:
+            return
+        self.notify("Exporting PNG...", timeout=2)
+        asyncio.create_task(self._export_png_async())
+
+    async def _export_png_async(self) -> None:
+        view = self.query_one(MoleculeView)
+        if view.molecule is None:
+            return
+
+        mol = view.molecule
+        if not view.show_bonds:
+            mol = Molecule(atoms=mol.atoms, bonds=[])
+        isos = self._isosurfaces if view.show_orbitals else None
+
+        export_w, export_h = 1600, 1200
+        bg = (0, 0, 0) if view.dark_bg else (255, 255, 255)
+
+        pixels, _ = await asyncio.to_thread(
+            render_scene,
+            export_w,
+            export_h,
+            mol,
+            view.rot_matrix,
+            view.camera_distance,
+            bg_color=bg,
+            isosurfaces=isos,
+            ssaa=2,
+            pan=(view.pan_x, view.pan_y),
+            licorice=view.licorice,
+            ambient=0.31,
+            diffuse=0.72,
+            specular=0.42,
+            shininess=96.0,
+            atom_scale=view.atom_scale,
+            bond_radius=view.bond_radius,
+        )
+
+        try:
+            from PIL import Image
+        except ImportError:
+            self.notify("Pillow required: pip install Pillow", timeout=3)
+            return
+
+        stem = Path(self.filepath).stem
+        if self.molden_data is not None:
+            mo_label = f".{self.current_mo + 1:03d}"
+        else:
+            mo_label = ""
+        out_path = Path(self.filepath).parent / f"{stem}{mo_label}.png"
+        img = Image.fromarray(pixels)
+        await asyncio.to_thread(img.save, str(out_path))
+        self.notify(f"Saved {out_path}", timeout=3)
 
     def _active_panel_table(self) -> DataTable | None:
         """Return the DataTable in the currently visible panel's active tab."""
@@ -777,6 +834,7 @@ def run():
     gbw_tmpdir: Path | None = None
 
     if filetype == "gbw":
+        print(f"Converting {Path(filepath).name} to Molden via orca_2mkl...")
         try:
             molden_file = _convert_gbw_to_molden(filepath)
         except RuntimeError as exc:

@@ -589,11 +589,9 @@ def run():
     elif suffix == ".molden":
         from .molden import evaluate_mo, load_molden_data
 
-        print("Loading molden file...")
         molden_data = load_molden_data(filepath)
         molecule = molden_data.molecule
         current_mo = molden_data.homo_idx
-        print(f"Evaluating MO {current_mo + 1}/{molden_data.n_mos} (HOMO)...")
         cube_data = evaluate_mo(molden_data, current_mo)
         isosurfaces = extract_isosurfaces(cube_data)
     else:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -588,14 +587,16 @@ def _detect_filetype(filepath: str) -> str:
 
 
 def run():
-    args = sys.argv[1:]
+    import argparse
 
-    if len(args) < 1:
-        print("Usage: moltui <file>")
-        print("Supported formats: XYZ, Cube, Molden")
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        prog="moltui",
+        description="Terminal-based 3D molecular viewer",
+    )
+    parser.add_argument("file", help="molecular structure file (XYZ, Cube, or Molden)")
+    parsed = parser.parse_args()
 
-    filepath = args[0]
+    filepath = parsed.file
     filetype = _detect_filetype(filepath)
     isosurfaces: list[IsosurfaceMesh] = []
     molden_data = None

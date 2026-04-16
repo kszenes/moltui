@@ -111,5 +111,10 @@ def load_molecule(filepath: str | Path) -> Molecule:
         from .molden import parse_molden_atoms
 
         return parse_molden_atoms(filepath)
+    elif suffix == ".gbw":
+        raise ValueError(
+            ".gbw files must be opened via the moltui command, not load_molecule(). "
+            "Use: moltui <file.gbw>"
+        )
     else:
-        raise ValueError(f"Unsupported file format: {suffix}. Use .xyz, .cube, or .molden")
+        raise ValueError(f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, or .gbw")

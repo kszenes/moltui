@@ -566,6 +566,9 @@ class MoltuiApp(App):
 
 def _detect_filetype(filepath: str) -> str:
     """Detect file type from content, falling back to extension."""
+    suffix = Path(filepath).suffix.lower()
+    if suffix == ".gbw":
+        return "gbw"
     with open(filepath) as f:
         for line in f:
             stripped = line.strip()
@@ -579,7 +582,47 @@ def _detect_filetype(filepath: str) -> str:
             except ValueError:
                 pass
             return "cube"
-    return Path(filepath).suffix.lstrip(".").lower()
+    return suffix.lstrip(".")
+
+
+def _convert_gbw_to_molden(gbw_path: str | Path) -> Path:
+    """Convert an ORCA .gbw file to a temporary .molden file using orca_2mkl."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    if shutil.which("orca_2mkl") is None:
+        raise RuntimeError(
+            "orca_2mkl not found on PATH. "
+            "Install ORCA or add orca_2mkl to your PATH to open .gbw files."
+        )
+
+    gbw = Path(gbw_path).resolve()
+    stem = gbw.stem
+
+    tmpdir = tempfile.mkdtemp(prefix="moltui_gbw_")
+    tmp_gbw = Path(tmpdir) / gbw.name
+    shutil.copy2(gbw, tmp_gbw)
+
+    try:
+        result = subprocess.run(
+            ["orca_2mkl", stem, "-molden"],
+            cwd=tmpdir,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise RuntimeError(f"Failed to run orca_2mkl: {exc}") from exc
+
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"orca_2mkl failed (exit {result.returncode}):\n{stderr}")
+
+    molden_file = Path(tmpdir) / f"{stem}.molden.input"
+    if not molden_file.exists():
+        raise RuntimeError(f"orca_2mkl did not produce expected output file: {molden_file.name}")
+
+    return molden_file
 
 
 def run():
@@ -589,7 +632,7 @@ def run():
         prog="moltui",
         description="Terminal-based 3D molecular viewer",
     )
-    parser.add_argument("file", help="molecular structure file (XYZ, Cube, or Molden)")
+    parser.add_argument("file", help="molecular structure file (XYZ, Cube, Molden, or ORCA .gbw)")
     parsed = parser.parse_args()
 
     filepath = parsed.file
@@ -597,27 +640,46 @@ def run():
     isosurfaces: list[IsosurfaceMesh] = []
     molden_data = None
     current_mo = 0
+    gbw_tmpdir: Path | None = None
 
-    if filetype == "cube":
-        cube_data = parse_cube_data(filepath)
-        molecule = cube_data.molecule
-        isosurfaces = extract_isosurfaces(cube_data)
-    elif filetype == "molden":
-        from .molden import evaluate_mo, load_molden_data
+    if filetype == "gbw":
+        try:
+            molden_file = _convert_gbw_to_molden(filepath)
+        except RuntimeError as exc:
+            import sys
 
-        molden_data = load_molden_data(filepath)
-        molecule = molden_data.molecule
-        current_mo = molden_data.homo_idx
-        cube_data = evaluate_mo(molden_data, current_mo)
-        isosurfaces = extract_isosurfaces(cube_data)
-    else:
-        molecule = load_molecule(filepath)
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        gbw_tmpdir = molden_file.parent
+        filepath = str(molden_file)
+        filetype = "molden"
 
-    app = MoltuiApp(
-        molecule=molecule,
-        filepath=filepath,
-        isosurfaces=isosurfaces,
-        molden_data=molden_data,
-        current_mo=current_mo,
-    )
-    app.run()
+    try:
+        if filetype == "cube":
+            cube_data = parse_cube_data(filepath)
+            molecule = cube_data.molecule
+            isosurfaces = extract_isosurfaces(cube_data)
+        elif filetype == "molden":
+            from .molden import evaluate_mo, load_molden_data
+
+            molden_data = load_molden_data(filepath)
+            molecule = molden_data.molecule
+            current_mo = molden_data.homo_idx
+            cube_data = evaluate_mo(molden_data, current_mo)
+            isosurfaces = extract_isosurfaces(cube_data)
+        else:
+            molecule = load_molecule(filepath)
+
+        app = MoltuiApp(
+            molecule=molecule,
+            filepath=parsed.file,
+            isosurfaces=isosurfaces,
+            molden_data=molden_data,
+            current_mo=current_mo,
+        )
+        app.run()
+    finally:
+        if gbw_tmpdir is not None:
+            import shutil
+
+            shutil.rmtree(gbw_tmpdir, ignore_errors=True)

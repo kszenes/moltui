@@ -44,9 +44,22 @@ The `e` key **exports** the current **scene** to a **PNG**.
 
 ### Tune Visuals
 
-The `V` key opens a sidebar where the style and lighting can be modified.
+The `V` key opens a sidebar where the **isovalue**, molecule **style** and **lighting** can be modified.
 
-<img width="1162" height="877" alt="image" src="https://github.com/user-attachments/assets/90b1bdc4-05bd-4e7e-b34c-5ff876972a72" />
+<img width="1229" height="877" alt="image" src="https://github.com/user-attachments/assets/177d4c5a-df88-4fb6-8fd7-5b51c0c467ef" />
+
+The lower case `v` cycles between the **styles**.
+
+| CPK | Licorice | VDW |
+|--------|--------|--------|
+| ![](https://github.com/user-attachments/assets/304b38f9-5fee-4bbc-89f6-062eb1fb0962) | ![](https://github.com/user-attachments/assets/b96f1780-90c0-49c2-8dd0-784602390f43) | ![](https://github.com/user-attachments/assets/d32b81b4-72b8-4ae5-9312-2ef7a73030bb) |
+
+Toggle between **light** and **dark** mode with `i`.
+
+| Light | Dark |
+| --- | --- |
+|![](https://github.com/user-attachments/assets/a82b5220-4eb4-4105-ada3-5ba1778f7dd6) | ![](https://github.com/user-attachments/assets/304b38f9-5fee-4bbc-89f6-062eb1fb0962) |
+
 
 ## Supported formats
 

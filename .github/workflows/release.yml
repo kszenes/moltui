@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  verify-version:
+    name: Verify tag and project version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version_check.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify versions match tag
+        id: version_check
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          repo = Path(".")
+          tag = os.environ["TAG_NAME"]
+          tag_version = tag[1:] if tag.startswith("v") else tag
+
+          pyproject = tomllib.loads((repo / "pyproject.toml").read_text())
+          project_name = pyproject["project"]["name"]
+          pyproject_version = pyproject["project"]["version"]
+
+          uv_lock = tomllib.loads((repo / "uv.lock").read_text())
+          lock_version = None
+          for package in uv_lock.get("package", []):
+              if package.get("name") == project_name:
+                  lock_version = package.get("version")
+                  break
+
+          if lock_version is None:
+              raise SystemExit(f"Could not find package '{project_name}' in uv.lock")
+
+          if pyproject_version != tag_version:
+              raise SystemExit(
+                  f"Tag version '{tag_version}' does not match pyproject.toml version '{pyproject_version}'"
+              )
+
+          if lock_version != tag_version:
+              raise SystemExit(
+                  f"Tag version '{tag_version}' does not match uv.lock version '{lock_version}' for '{project_name}'"
+              )
+
+          output_file = Path(os.environ["GITHUB_OUTPUT"])
+          with output_file.open("a", encoding="utf-8") as f:
+              f.write(f"version={tag_version}\n")
+          PY
+
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    needs: verify-version
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+      - name: Publish package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  create-github-release:
+    name: Create GitHub release
+    runs-on: ubuntu-latest
+    needs: [build, publish-pypi]
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/*

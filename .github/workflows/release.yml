@@ -10,65 +10,16 @@ permissions:
   id-token: write
 
 jobs:
-  verify-version:
-    name: Verify tag and project version
+  build:
+    name: Build distributions
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version_check.outputs.version }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
-      - name: Verify versions match tag
-        id: version_check
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          python - <<'PY'
-          import os
-          import tomllib
-          from pathlib import Path
-
-          repo = Path(".")
-          tag = os.environ["TAG_NAME"]
-          tag_version = tag[1:] if tag.startswith("v") else tag
-
-          pyproject = tomllib.loads((repo / "pyproject.toml").read_text())
-          project_name = pyproject["project"]["name"]
-          pyproject_version = pyproject["project"]["version"]
-
-          uv_lock = tomllib.loads((repo / "uv.lock").read_text())
-          lock_version = None
-          for package in uv_lock.get("package", []):
-              if package.get("name") == project_name:
-                  lock_version = package.get("version")
-                  break
-
-          if lock_version is None:
-              raise SystemExit(f"Could not find package '{project_name}' in uv.lock")
-
-          if pyproject_version != tag_version:
-              raise SystemExit(
-                  f"Tag version '{tag_version}' does not match pyproject.toml version '{pyproject_version}'"
-              )
-
-          if lock_version != tag_version:
-              raise SystemExit(
-                  f"Tag version '{tag_version}' does not match uv.lock version '{lock_version}' for '{project_name}'"
-              )
-
-          output_file = Path(os.environ["GITHUB_OUTPUT"])
-          with output_file.open("a", encoding="utf-8") as f:
-              f.write(f"version={tag_version}\n")
-          PY
-
-  build:
-    name: Build distributions
-    runs-on: ubuntu-latest
-    needs: verify-version
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -80,6 +31,49 @@ jobs:
 
       - name: Build package
         run: python -m build
+
+      - name: Verify built version matches tag
+        id: version_check
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import zipfile
+          from pathlib import Path
+
+          dist_dir = Path("dist")
+          wheel_path = next(dist_dir.glob("*.whl"), None)
+          if wheel_path is None:
+              raise SystemExit("No wheel artifact found in dist/")
+
+          metadata_version = None
+          with zipfile.ZipFile(wheel_path) as zf:
+              metadata_name = next(
+                  (name for name in zf.namelist() if name.endswith(".dist-info/METADATA")),
+                  None,
+              )
+              if metadata_name is None:
+                  raise SystemExit("Could not locate METADATA in wheel")
+              for line in zf.read(metadata_name).decode("utf-8").splitlines():
+                  if line.startswith("Version: "):
+                      metadata_version = line.split("Version: ", 1)[1].strip()
+                      break
+
+          if metadata_version is None:
+              raise SystemExit("Could not read package version from wheel metadata")
+
+          tag = os.environ["TAG_NAME"]
+          tag_version = tag[1:] if tag.startswith("v") else tag
+          if metadata_version != tag_version:
+              raise SystemExit(
+                  f"Built package version '{metadata_version}' does not match tag version '{tag_version}'"
+              )
+
+          output_file = Path(os.environ["GITHUB_OUTPUT"])
+          with output_file.open("a", encoding="utf-8") as f:
+              f.write(f"version={metadata_version}\n")
+          PY
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

@@ -214,6 +214,16 @@ class VisualPanel(Widget):
         self.refresh()
 
     def compose(self) -> ComposeResult:
+        yield Label("Isosurface", id="label-isovalue")
+        yield Slider(
+            "Isovalue",
+            value=0.05,
+            max_val=0.10,
+            min_val=0.001,
+            step=0.005,
+            decimals=3,
+            id="slider-isovalue",
+        )
         yield Label("Style")
         with _NavRadioSet():
             yield RadioButton("CPK", value=True, id="radio-cpk")
@@ -234,16 +244,6 @@ class VisualPanel(Widget):
             max_val=0.30,
             step=0.02,
             id="slider-bond-radius",
-        )
-        yield Label("Isosurface", id="label-isovalue")
-        yield Slider(
-            "Isovalue",
-            value=0.05,
-            min_val=0.001,
-            max_val=0.10,
-            step=0.005,
-            decimals=3,
-            id="slider-isovalue",
         )
         yield Label("Lighting")
         yield Slider(

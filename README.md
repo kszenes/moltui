@@ -89,7 +89,7 @@ Toggle between **light** and **dark** mode with `i`.
 | `i` | Toggle **dark/light** theme |
 | `b` | Toggle **bonds** |
 | `e` | **Export** PNG |
-| `v` | Toggle style (CPK, Licorice, VDW) **style** |
+| `v` | Toggle **style** (CPK, Licorice, VDW) |
 | `#` | Toggle **atom numbers** |
 
 ### Panels

@@ -1,6 +1,7 @@
 # MolTUI
 
-**Terminal-based 3D molecular viewer** for **XYZ**, **Zmat**, **Molden**, **Gaussian Cube** and **ORCA GBW** file formats rendered entirely in **Unicode** characters. 
+**MolTUI** is a terminal-native molecular viewer for the **XYZ**, **Zmat**, **Molden**, **Gaussian Cube** and **ORCA GBW** file format designed for **quick inspection** of **geometries** and **orbitals** directly in the **terminal** using **Unicode** characters.
+Ideal for **remote workflows**, **SSH sessions**, and **lightweight analysis**.
 
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
 
@@ -118,5 +119,5 @@ Toggle between **light** and **dark** mode with `i`.
 
 ## Limitations
 
-- Quality of rendering might depend on terminal emulator and font. All figures in the repository have been generated using the  JetBrains Mono Nerd Font in the Kitty terminal. 
+- The content is rendered using braille Unicode characters and, therefore, the quality of rendering can depend on the font and terminal emulator. All figures in the repository have been generated using the JetBrains Mono Nerd Font in the Kitty terminal. 
 - The Orca GBW file format is typically incompatible between versions. Therefore, the `orca_2mkl` should ideally be of the same version as the Orca version used to produce the GBW file. Newer version of Orca can try to recover earlier GBW files using the [rescue](https://orca-manual.mpi-muelheim.mpg.de/contents/quickstartguide/troubleshooting.html#using-old-orca-inputs) feature. 

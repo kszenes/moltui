@@ -50,11 +50,14 @@ The modes include **molecular orbitals**, **normal modes** and **geometry** and 
 **Toggle** a looping **animation** of the trajectory using `<space>` and **cycle** individual **frames** using `[` and `]`.
 The **geometry** sidebar values **updates live** with the **current frame**'s geometry.
 
+<img width="1200" height="733" alt="geom-opt" src="https://github.com/user-attachments/assets/b66d6cfb-c4ae-4c56-ba9c-3c26a4fcdf20" />
 
 #### Normal Modes
 
 **Normal modes** can be provided either via the **Molden** or Orca `.hess` file formats.
 **Animation** playing can be **toggled** with `<space>`.
+
+<img width="1920" height="1080" alt="normal-modes2" src="https://github.com/user-attachments/assets/c13326ff-e24e-46d6-8b24-818b18bac73c" />
 
 
 ### Export to PNG Format

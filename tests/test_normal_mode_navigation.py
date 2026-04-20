@@ -338,7 +338,6 @@ async def test_mode_specific_actions_disabled_outside_active_mode() -> None:
     async with app.run_test() as pilot:
         # Starts in MO mode
         assert app.check_action("toggle_playback", tuple()) is False
-        assert app.check_action("next_mode", tuple()) is False
 
         await pilot.press("m")  # move to normal mode
         await pilot.pause()

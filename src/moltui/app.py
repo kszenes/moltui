@@ -311,14 +311,10 @@ class MoltuiApp(App):
         Binding("M", "cycle_view_mode_prev", "Mode-", show=False),
         Binding("n", "panel_next", "Next", priority=True),
         Binding("p", "panel_prev", "Prev", priority=True),
+        Binding("S", "toggle_sidebar", "Sidebar"),
         Binding("space", "toggle_playback", "Play"),
-        Binding("escape", "close_panel", "Close panel", show=False),
         Binding("right_square_bracket", "next_animation_step", "Frame]", show=False),
         Binding("left_square_bracket", "prev_animation_step", "[Frame", show=False),
-        Binding("f", "next_animation_step", "Step+", show=False),
-        Binding("d", "prev_animation_step", "Step-", show=False),
-        Binding("x", "next_mode", "Mode+", show=False),
-        Binding("z", "prev_mode", "Mode-", show=False),
         Binding("e", "export_png", "Export"),
         Binding("q", "quit", "Quit"),
         Binding("tab", "tab_forward", show=False, priority=True),
@@ -422,11 +418,6 @@ class MoltuiApp(App):
             return False
         if action == "toggle_normal_mode_panel":
             if self.normal_mode_data is None:
-                return False
-        if action in ("next_mode", "prev_mode"):
-            if self._view_mode != _VIEW_NORMAL:
-                return False
-            if self.normal_mode_data is None or self.normal_mode_data.mode_vectors.shape[0] == 0:
                 return False
         if action in ("toggle_playback", "next_animation_step", "prev_animation_step"):
             if self._view_mode == _VIEW_NORMAL:
@@ -544,24 +535,6 @@ class MoltuiApp(App):
 
         # Many Molden writers store only vibrational modes (already trimmed).
         return 0
-
-    def _adjacent_mode_index(self, step: int) -> int | None:
-        if self.normal_mode_data is None:
-            return None
-        n_modes = self.normal_mode_data.mode_vectors.shape[0]
-        if n_modes == 0:
-            return None
-        first_vib = self._first_vibrational_mode_index()
-        if first_vib >= n_modes:
-            first_vib = 0
-        start = self.normal_mode_data.mode_index
-        if start < first_vib:
-            start = first_vib
-        n_vib = n_modes - first_vib
-        if n_vib <= 0:
-            return 0
-        rel = (start - first_vib + step) % n_vib
-        return first_vib + rel
 
     def _apply_active_animation_geometry(self) -> None:
         if self.trajectory_data is not None:
@@ -779,28 +752,6 @@ class MoltuiApp(App):
             self.normal_mode_data.phase -= self.normal_mode_data.phase_step
         self._apply_active_animation_geometry()
 
-    def action_next_mode(self) -> None:
-        if self.normal_mode_data is None:
-            return
-        next_idx = self._adjacent_mode_index(1)
-        if next_idx is None:
-            return
-        self.normal_mode_data.mode_index = next_idx
-        self.normal_mode_data.phase = 0.0
-        self.query_one(NormalModePanel).select_mode(next_idx)
-        self._apply_active_animation_geometry()
-
-    def action_prev_mode(self) -> None:
-        if self.normal_mode_data is None:
-            return
-        prev_idx = self._adjacent_mode_index(-1)
-        if prev_idx is None:
-            return
-        self.normal_mode_data.mode_index = prev_idx
-        self.normal_mode_data.phase = 0.0
-        self.query_one(NormalModePanel).select_mode(prev_idx)
-        self._apply_active_animation_geometry()
-
     def action_tab_forward(self) -> None:
         """Handle Tab without enabling global focus cycling."""
         geom = self.query_one(GeometryPanel)
@@ -964,6 +915,12 @@ class MoltuiApp(App):
             view = self.query_one(MoleculeView)
             view._invalidate_cache()
             view.focus()
+
+    def action_toggle_sidebar(self) -> None:
+        if self._panel_is_open():
+            self.action_close_panel()
+            return
+        self._set_view_mode(self._view_mode, reveal_panel=True)
 
     def _close_panels(self) -> None:
         """Close all sidebar panels and reset their state."""

@@ -22,8 +22,8 @@ moltui <file>
 ## Features
 
 **MolTUI** is organized in a series of **modes** that can be **cycled** using the `m` (forward) and `M` (backward) keys.
-Each opens a respective **sidebar**; the modes include **molecular orbitals**, **normal modes** and **geometry**.
-Their availability depends on the file format that was opened.
+Each opens a respective **sidebar** which can be toggled on and off with `S`.
+The modes include **molecular orbitals**, **normal modes** and **geometry** and availability depends on the file format that was opened.
 
 
 ### Visualize Orbitals
@@ -118,19 +118,31 @@ Toggle between **light** and **dark** mode with `i`.
 
 | Key | Action |
 |-----|--------|
-| `g` | **Geometry** panel (bonds, angles, dihedrals) |
-| `m` | **MO** panel (molecular orbitals) |
-| `V` | **Visual settings** panel (style, sizes, lighting) |
-| `[`, `]` | **Previous/next** MO |
-| `n/p` | **Navigate** panel entries |
-| `Esc` | **Close** panel |
+| `m` / `M` | Cycle sidebar **mode** forward/backward (Geometry, MO, Normal Modes) |
+| `S` | Toggle current **sidebar** (hide/show) |
+| `V` | Toggle **Visual settings** panel |
+| `n/p` | **Next/previous** row in the active sidebar table |
+
+### Geometry panel
+
+| Key | Action |
+|-----|--------|
+| `Tab/Shift+Tab` | Switch **Bonds/Angles/Dihedrals** tab |
+| `s` | Toggle **sort by value** for active tab |
 
 ### Visual panel
 
 | Key | Action |
 |-----|--------|
-| `n/p` | **Move** between controls |
-| `Tab/Shift+Tab` | **Adjust value** (slider) or **switch option** (style) |
+| `n/p` | Move focus to **next/previous** control |
+| `Tab/Shift+Tab` | **Increase/decrease** focused slider, or cycle style option |
+
+### Animation and modes
+
+| Key | Action |
+|-----|--------|
+| `Space` | Toggle **play/pause** trajectory or normal mode animation |
+| `[` / `]` | Previous/next **animation step** (frame/phase) |
 
 ### General
 

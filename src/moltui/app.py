@@ -286,6 +286,8 @@ class MoltuiApp(App):
         Binding("n", "panel_next", "Next"),
         Binding("p", "panel_prev", "Prev"),
         Binding("V", "toggle_visual", "Visual"),
+        Binding("d", "next_frame", "Frame+", show=False),
+        Binding("a", "prev_frame", "Frame-", show=False),
     ]
 
     def __init__(
@@ -295,6 +297,7 @@ class MoltuiApp(App):
         isosurfaces: list[IsosurfaceMesh] | None = None,
         molden_data=None,
         current_mo: int = 0,
+        frames: list[Molecule] | None = None,
     ):
         super().__init__()
         self.molecule = molecule
@@ -302,6 +305,8 @@ class MoltuiApp(App):
         self._isosurfaces = isosurfaces or []
         self.molden_data = molden_data
         self.current_mo = current_mo
+        self.frames = frames if frames else [molecule]
+        self.current_frame = 0
         self._cube_data: CubeData | None = None
         self.isovalue: float = 0.05
         self._mo_switch_timer = None
@@ -349,10 +354,15 @@ class MoltuiApp(App):
         if action in ("panel_next", "panel_prev"):
             if not self._panel_is_open():
                 return False
+        if action in ("next_frame", "prev_frame"):
+            if len(self.frames) <= 1:
+                return False
         return True
 
     def _title_text(self) -> str:
         parts = [Path(self.filepath).name]
+        if len(self.frames) > 1:
+            parts.append(f"frame {self.current_frame + 1}/{len(self.frames)}")
         if self.molden_data is not None:
             md = self.molden_data
             energy = md.mo_energies[self.current_mo]
@@ -758,6 +768,24 @@ class MoltuiApp(App):
         if prev_mo is not None:
             self._set_current_mo(prev_mo)
 
+    def action_next_frame(self) -> None:
+        self._switch_frame((self.current_frame + 1) % len(self.frames))
+
+    def action_prev_frame(self) -> None:
+        self._switch_frame((self.current_frame - 1) % len(self.frames))
+
+    def _switch_frame(self, idx: int) -> None:
+        self.current_frame = idx
+        self.molecule = self.frames[idx]
+        view = self.query_one(MoleculeView)
+        view.molecule = self.molecule
+        view.highlighted_atoms = set()
+        view._invalidate_cache()
+        geom = self.query_one(GeometryPanel)
+        if geom.has_class("visible"):
+            geom.set_molecule(self.molecule)
+        self._update_title()
+
     def _debounced_switch_mo(self) -> None:
         self._update_title()
         if self._mo_switch_timer is not None or self._mo_switch_task is not None:
@@ -894,6 +922,7 @@ def run():
 
     try:
         cube_data_for_app: CubeData | None = None
+        frames: list[Molecule] | None = None
         if filetype == "cube":
             cube_data = parse_cube_data(filepath)
             molecule = cube_data.molecule
@@ -907,6 +936,11 @@ def run():
             current_mo = molden_data.homo_idx
             cube_data = evaluate_mo(molden_data, current_mo)
             isosurfaces = extract_isosurfaces(cube_data)
+        elif filetype == "xyz":
+            from .parsers import parse_xyz_trajectory
+
+            frames = parse_xyz_trajectory(filepath)
+            molecule = frames[0]
         else:
             molecule = load_molecule(filepath)
 
@@ -916,6 +950,7 @@ def run():
             isosurfaces=isosurfaces,
             molden_data=molden_data,
             current_mo=current_mo,
+            frames=frames,
         )
         app._cube_data = cube_data_for_app
         app.run()

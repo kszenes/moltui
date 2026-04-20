@@ -17,23 +17,41 @@ class CubeData:
     data: np.ndarray  # (n1, n2, n3) volumetric data
 
 
-def parse_xyz(filepath: str | Path) -> Molecule:
+def parse_xyz_trajectory(filepath: str | Path) -> list[Molecule]:
+    """Parse an XYZ file with one or more frames. Returns one Molecule per frame.
+
+    Accepts the standard multi-frame XYZ format: each frame is
+    <atom_count>\\n<comment>\\n<atom_count lines of "SYMBOL X Y Z">, concatenated.
+    """
     filepath = Path(filepath)
     with open(filepath) as f:
         lines = f.readlines()
 
-    n_atoms = int(lines[0].strip())
-    # line 1 is comment, skip
-    atoms = []
-    for line in lines[2 : 2 + n_atoms]:
-        parts = line.split()
-        symbol = parts[0]
-        x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
-        atoms.append(Atom(element=get_element(symbol), position=np.array([x, y, z])))
+    frames: list[Molecule] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        # Skip blank lines between or trailing frames
+        if not lines[i].strip():
+            i += 1
+            continue
+        n_atoms = int(lines[i].strip())
+        # lines[i+1] is comment, skip
+        atoms = []
+        for line in lines[i + 2 : i + 2 + n_atoms]:
+            parts = line.split()
+            symbol = parts[0]
+            x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+            atoms.append(Atom(element=get_element(symbol), position=np.array([x, y, z])))
+        mol = Molecule(atoms=atoms, bonds=[])
+        mol.detect_bonds()
+        frames.append(mol)
+        i += 2 + n_atoms
+    return frames
 
-    mol = Molecule(atoms=atoms, bonds=[])
-    mol.detect_bonds()
-    return mol
+
+def parse_xyz(filepath: str | Path) -> Molecule:
+    return parse_xyz_trajectory(filepath)[0]
 
 
 def parse_cube(filepath: str | Path) -> Molecule:

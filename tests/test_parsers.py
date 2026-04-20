@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from moltui.parsers import load_molecule, parse_cube_data, parse_xyz
+from moltui.parsers import load_molecule, parse_cube_data, parse_xyz, parse_xyz_trajectory
 
 
 def _write_xyz(tmp_path: Path, name: str, body: str) -> Path:
@@ -37,6 +37,28 @@ def _write_cube(tmp_path: Path, name: str = "sample.cube") -> Path:
         )
     )
     return path
+EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+WATER_XYZ = """3
+water molecule
+O 0.00000 0.00000 0.00000
+H 0.75700 0.58600 0.00000
+H -0.75700 0.58600 0.00000
+"""
+
+TWO_FRAME_XYZ = """3
+frame 1
+O 0.00000 0.00000 0.00000
+H 0.75700 0.58600 0.00000
+H -0.75700 0.58600 0.00000
+3
+frame 2
+O 0.10000 0.00000 0.00000
+H 0.85700 0.58600 0.00000
+H -0.65700 0.58600 0.00000
+"""
 
 
 # --- XYZ parsing ---
@@ -171,3 +193,64 @@ def test_load_xyz_smoke(tmp_path: Path):
         mol = parse_xyz(xyz_file)
         assert len(mol.atoms) > 0
         assert all(a.position.shape == (3,) for a in mol.atoms)
+XYZ_FILES = sorted(EXAMPLES_DIR.glob("*.xyz"))
+
+
+@pytest.mark.parametrize("xyz_file", XYZ_FILES, ids=lambda p: p.name)
+def test_load_xyz_smoke(xyz_file: Path):
+    mol = parse_xyz(xyz_file)
+    assert len(mol.atoms) > 0
+    assert all(a.position.shape == (3,) for a in mol.atoms)
+
+
+# --- Multi-frame XYZ (trajectory) ---
+
+
+class TestParseXYZTrajectory:
+    def test_single_frame_returns_list_of_one(self, tmp_path: Path):
+        f = tmp_path / "water.xyz"
+        f.write_text(WATER_XYZ)
+        frames = parse_xyz_trajectory(f)
+        assert len(frames) == 1
+        assert len(frames[0].atoms) == 3
+
+    def test_two_frames(self, tmp_path: Path):
+        f = tmp_path / "traj.xyz"
+        f.write_text(TWO_FRAME_XYZ)
+        frames = parse_xyz_trajectory(f)
+        assert len(frames) == 2
+        assert len(frames[0].atoms) == 3
+        assert len(frames[1].atoms) == 3
+        # Atoms moved between frames
+        assert not np.allclose(frames[0].atoms[0].position, frames[1].atoms[0].position)
+
+    def test_parse_xyz_returns_first_frame(self, tmp_path: Path):
+        f = tmp_path / "traj.xyz"
+        f.write_text(TWO_FRAME_XYZ)
+        mol = parse_xyz(f)
+        frames = parse_xyz_trajectory(f)
+        assert len(mol.atoms) == len(frames[0].atoms)
+        for a, b in zip(mol.atoms, frames[0].atoms):
+            assert np.allclose(a.position, b.position)
+
+    def test_trailing_blank_lines_tolerated(self, tmp_path: Path):
+        f = tmp_path / "traj.xyz"
+        f.write_text(TWO_FRAME_XYZ + "\n\n")
+        frames = parse_xyz_trajectory(f)
+        assert len(frames) == 2
+
+    def test_bonds_detected_per_frame(self, tmp_path: Path):
+        f = tmp_path / "traj.xyz"
+        f.write_text(TWO_FRAME_XYZ)
+        frames = parse_xyz_trajectory(f)
+        for mol in frames:
+            assert len(mol.bonds) > 0
+
+    def test_vfile_09_if_present(self):
+        vfile = REPO_ROOT / "vfile_09.xyz"
+        if not vfile.exists():
+            pytest.skip("vfile_09.xyz not in repo root")
+        frames = parse_xyz_trajectory(vfile)
+        assert len(frames) == 19
+        for mol in frames:
+            assert len(mol.atoms) == 16

@@ -443,6 +443,54 @@ async def test_brackets_and_space_control_multixyz_frames_in_geometry_mode() -> 
 
 
 @pytest.mark.asyncio
+async def test_multixyz_recomputes_bonds_and_breaks_on_dissociation() -> None:
+    _install_skimage_stub()
+
+    from textual.widgets import DataTable
+
+    from moltui.app import MoltuiApp, TrajectoryData
+    from moltui.elements import Atom, Molecule, get_element
+    from moltui.geometry_panel import GeometryPanel
+
+    atoms = [
+        Atom(get_element("H"), np.array([0.0, 0.0, 0.0])),
+        Atom(get_element("H"), np.array([0.74, 0.0, 0.0])),
+    ]
+    molecule = Molecule(atoms=atoms, bonds=[])
+    molecule.detect_bonds()
+    assert len(molecule.bonds) == 1
+
+    # H-H bond threshold with current settings is ~0.806 A (0.31+0.31)*1.3.
+    frames = np.array(
+        [
+            [[0.0, 0.0, 0.0], [0.74, 0.0, 0.0]],
+            [[0.0, 0.0, 0.0], [1.20, 0.0, 0.0]],
+        ],
+        dtype=np.float64,
+    )
+    trajectory_data = TrajectoryData(frames=frames)
+
+    app = MoltuiApp(
+        molecule=molecule,
+        filepath="dissociation.xyz",
+        trajectory_data=trajectory_data,
+    )
+
+    async with app.run_test() as pilot:
+        panel = app.query_one(GeometryPanel)
+        bond_table = panel.query_one("#bonds-table", DataTable)
+        assert bond_table.row_count == 1
+
+        await pilot.press("]")
+        await pilot.pause()
+
+        assert app.trajectory_data is not None
+        assert app.trajectory_data.frame_index == 1
+        assert len(app.molecule.bonds) == 0
+        assert bond_table.row_count == 0
+
+
+@pytest.mark.asyncio
 async def test_sidebar_table_has_initial_focus_on_open() -> None:
     _install_skimage_stub()
 

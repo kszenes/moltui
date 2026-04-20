@@ -545,8 +545,10 @@ class MoltuiApp(App):
         return 0
 
     def _apply_active_animation_geometry(self) -> None:
+        recompute_bonds = False
         if self.trajectory_data is not None:
             coords = self.trajectory_data.frames[self.trajectory_data.frame_index]
+            recompute_bonds = True
         elif self.normal_mode_data is not None:
             mode = self.normal_mode_data.mode_vectors[self.normal_mode_data.mode_index]
             disp = self.normal_mode_data.amplitude * np.sin(self.normal_mode_data.phase) * mode
@@ -556,6 +558,8 @@ class MoltuiApp(App):
 
         for i, atom in enumerate(self.molecule.atoms):
             atom.position = coords[i].copy()
+        if recompute_bonds:
+            self.molecule.detect_bonds()
         view = self._query_molecule_view()
         if view is None:
             # Timer callbacks can race with app teardown in tests/CI.

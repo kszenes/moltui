@@ -216,13 +216,24 @@ class Molecule:
         return results
 
     def detect_bonds(self, tolerance: float = 1.3):
-        self.bonds = []
         n = len(self.atoms)
-        for i in range(n):
-            for j in range(i + 1, n):
-                dist = np.linalg.norm(self.atoms[i].position - self.atoms[j].position)
-                max_bond = (
-                    self.atoms[i].element.covalent_radius + self.atoms[j].element.covalent_radius
-                ) * tolerance
-                if dist < max_bond:
-                    self.bonds.append((i, j))
+        if n < 2:
+            self.bonds = []
+            return
+
+        positions = np.array([atom.position for atom in self.atoms], dtype=np.float64)
+        covalent_radii = np.array(
+            [atom.element.covalent_radius for atom in self.atoms], dtype=np.float64
+        )
+
+        # Same pair ordering as nested loops: i outer, j inner (i < j).
+        i_idx, j_idx = np.triu_indices(n, k=1)
+        delta = positions[i_idx] - positions[j_idx]
+        dist_sq = np.einsum("ij,ij->i", delta, delta)
+
+        max_bond = (covalent_radii[i_idx] + covalent_radii[j_idx]) * tolerance
+        is_bonded = dist_sq < (max_bond * max_bond)
+
+        self.bonds = [
+            (int(i), int(j)) for i, j in zip(i_idx[is_bonded], j_idx[is_bonded], strict=False)
+        ]

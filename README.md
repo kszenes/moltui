@@ -22,8 +22,8 @@ moltui <file>
 ## Features
 
 **MolTUI** is organized in a series of **modes** that can be **cycled** using the `m` (forward) and `M` (backward) keys.
-Each opens a respective **sidebar** which can be toggled on and off with `S`.
-The modes include **molecular orbitals**, **normal modes** and **geometry** and availability depends on the file format that was opened.
+Each mode opens a respective **sidebar** which can be **toggled** on and off with `S`.
+The modes consist of **molecular orbitals**, **normal modes** and **geometry** and availability depends on the file format that was opened.
 
 
 ### Visualize Orbitals

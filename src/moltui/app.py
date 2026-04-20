@@ -307,9 +307,8 @@ class MoltuiApp(App):
         Binding("o", "toggle_orbitals", "Orbitals"),
         Binding("escape", "close_panel", "Close panel", show=False),
         Binding("q", "quit", "Quit"),
-        Binding("g", "toggle_geometry", "Geom"),
-        Binding("m", "cycle_view_mode_next", "Mode+"),
-        Binding("M", "cycle_view_mode_prev", "Mode-"),
+        Binding("m", "cycle_view_mode_next", "Mode"),
+        Binding("M", "cycle_view_mode_prev", "Mode-", show=False),
         Binding("right_square_bracket", "next_mo", "MO]", show=False),
         Binding("left_square_bracket", "prev_mo", "[MO", show=False),
         Binding("e", "export_png", "Export"),
@@ -413,7 +412,7 @@ class MoltuiApp(App):
         modes.append(_VIEW_GEOMETRY)
         return modes
 
-    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+    def check_action(self, action: str, _parameters: tuple[object, ...]) -> bool | None:
         if action in ("toggle_mo_panel", "next_mo", "prev_mo"):
             has_mo = self.molden_data is not None and self.molden_data.n_mos > 0
             if not has_mo and not self._isosurfaces:
@@ -957,9 +956,6 @@ class MoltuiApp(App):
             mode_panel.remove_class("visible")
         if vis.has_class("visible"):
             vis.remove_class("visible")
-
-    def action_toggle_geometry(self) -> None:
-        self._set_view_mode(_VIEW_GEOMETRY)
 
     def action_cycle_view_mode_next(self) -> None:
         modes = self._available_view_modes()

@@ -18,7 +18,7 @@ def _install_skimage_stub() -> None:
     skimage = types.ModuleType("skimage")
     measure = types.ModuleType("skimage.measure")
 
-    def _marching_cubes(*args, **kwargs):  # pragma: no cover - never used in this test
+    def _marching_cubes(*_args, **kwargs):  # pragma: no cover - never used in this test
         raise RuntimeError("marching_cubes stub called unexpectedly")
 
     measure.marching_cubes = _marching_cubes

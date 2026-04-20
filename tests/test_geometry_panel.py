@@ -25,7 +25,7 @@ def test_row_highlight_ignores_non_active_table(monkeypatch) -> None:
     monkeypatch.setattr(
         panel,
         "query_one",
-        lambda selector, *args, **kwargs: tabs if selector is TabbedContent else None,
+        lambda selector, *_args, **kwargs: tabs if selector is TabbedContent else None,
     )
     monkeypatch.setattr(panel, "post_message", lambda message: posted.append(message))
 
@@ -52,7 +52,7 @@ def test_row_highlight_emits_for_active_table(monkeypatch) -> None:
     monkeypatch.setattr(
         panel,
         "query_one",
-        lambda selector, *args, **kwargs: tabs if selector is TabbedContent else None,
+        lambda selector, *_args, **kwargs: tabs if selector is TabbedContent else None,
     )
     monkeypatch.setattr(panel, "post_message", lambda message: posted.append(message))
 

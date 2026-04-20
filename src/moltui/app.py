@@ -797,17 +797,21 @@ class MoltuiApp(App):
 
 def _detect_filetype(filepath: str) -> str:
     """Detect file type from content, falling back to extension."""
-    suffix = Path(filepath).suffix.lower()
+    path = Path(filepath)
+    suffix = path.suffix.lower()
+    name_lower = path.name.lower()
     if suffix == ".gbw":
         return "gbw"
     if suffix in (".zmat", ".zmatrix"):
         return "zmat"
+    if suffix == ".molden" or name_lower.endswith(".molden.input"):
+        return "molden"
     with open(filepath) as f:
         for line in f:
             stripped = line.strip()
             if not stripped:
                 continue
-            if "[Molden Format]" in stripped:
+            if "[molden format]" in stripped.lower():
                 return "molden"
             try:
                 int(stripped)
@@ -915,6 +919,11 @@ def run():
         )
         app._cube_data = cube_data_for_app
         app.run()
+    except ValueError as exc:
+        import sys
+
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
     finally:
         if gbw_tmpdir is not None:
             import shutil

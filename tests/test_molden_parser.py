@@ -3,8 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from moltui.gto import eval_gto, parse_molden
+from moltui.molden import load_molden_data
+
+EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 
 
 def _write_molden(tmp_path: Path, contents: str) -> Path:
@@ -185,3 +189,14 @@ Occup= 2.0
     ao = eval_gto(basis.shells, np.array([[0.1, 0.2, 0.3]]), basis.spherical)
 
     assert ao.shape == (1, 9)
+
+
+def test_load_molden_data_rejects_normal_modes_only_file() -> None:
+    """Normal-modes-only Molden files should fail with a clear user message."""
+    path = EXAMPLES_DIR / "h2o_normalmodes.molden"
+
+    with pytest.raises(
+        ValueError,
+        match="only contains normal modes and not geometries or orbitals",
+    ):
+        load_molden_data(path)

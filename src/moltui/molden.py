@@ -54,7 +54,19 @@ def parse_molden_atoms(filepath: str | Path) -> Molecule:
 
 def load_molden_data(filepath: str | Path) -> MoldenData:
     """Load full molden data including MO coefficients."""
+    filepath = Path(filepath)
     basis = parse_molden(filepath)
+    file_text = filepath.read_text().lower()
+
+    # Reject vibrational-only Molden files up front with a clear message.
+    has_normal_modes = any(
+        tag in file_text for tag in ("[fr-coord]", "[fr-norm-coord]", "[freq]", "[n_freq]")
+    )
+    has_required_orbital_sections = all(tag in file_text for tag in ("[atoms]", "[gto]", "[mo]"))
+    if has_normal_modes and not has_required_orbital_sections:
+        raise ValueError(
+            "This Molden file only contains normal modes and not geometries or orbitals."
+        )
 
     # Build Molecule
     atoms = []

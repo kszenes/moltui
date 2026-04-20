@@ -253,6 +253,7 @@ def real_solid_harmonics(
       l=1: x, y, z
       l=2 [5d]: d0, d+1, d-1, d+2, d-2
       l=3 [7f]: f0, f+1, f-1, f+2, f-2, f+3, f-3
+      l=4 [9g]: g0, g+1, g-1, g+2, g-2, g+3, g-3, g+4, g-4
     """
     r2 = dx * dx + dy * dy + dz * dz
 
@@ -284,6 +285,27 @@ def real_solid_harmonics(
             sqrt15 * dx * dy * dz,
             sqrt2_5 / 2.0 * dx * (dx * dx - 3.0 * dy * dy),
             sqrt2_5 / 2.0 * dy * (3.0 * dx * dx - dy * dy),
+        ]
+
+    if l == 4:
+        xx = dx * dx
+        yy = dy * dy
+        zz = dz * dz
+        r4 = r2 * r2
+        sqrt10 = np.sqrt(10.0)
+        sqrt5 = np.sqrt(5.0)
+        sqrt70 = np.sqrt(70.0)
+        sqrt35 = np.sqrt(35.0)
+        return [
+            (35.0 * zz * zz - 30.0 * zz * r2 + 3.0 * r4) / 8.0,
+            sqrt10 / 4.0 * dx * dz * (7.0 * zz - 3.0 * r2),
+            sqrt10 / 4.0 * dy * dz * (7.0 * zz - 3.0 * r2),
+            sqrt5 / 4.0 * (xx - yy) * (7.0 * zz - r2),
+            sqrt5 / 2.0 * dx * dy * (7.0 * zz - r2),
+            sqrt70 / 4.0 * dx * dz * (xx - 3.0 * yy),
+            sqrt70 / 4.0 * dy * dz * (3.0 * xx - yy),
+            sqrt35 / 8.0 * (xx * xx - 6.0 * xx * yy + yy * yy),
+            sqrt35 / 2.0 * dx * dy * (xx - yy),
         ]
 
     raise NotImplementedError(f"Angular momentum l={l} not implemented")

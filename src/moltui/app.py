@@ -286,8 +286,8 @@ class MoltuiApp(App):
         Binding("n", "panel_next", "Next"),
         Binding("p", "panel_prev", "Prev"),
         Binding("V", "toggle_visual", "Visual"),
-        Binding("d", "next_frame", "Frame+", show=False),
-        Binding("a", "prev_frame", "Frame-", show=False),
+        Binding("d", "next_frame", "Frame+"),
+        Binding("a", "prev_frame", "Frame-"),
     ]
 
     def __init__(

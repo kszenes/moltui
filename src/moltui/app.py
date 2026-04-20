@@ -309,8 +309,8 @@ class MoltuiApp(App):
         Binding("q", "quit", "Quit"),
         Binding("m", "cycle_view_mode_next", "Mode"),
         Binding("M", "cycle_view_mode_prev", "Mode-", show=False),
-        Binding("right_square_bracket", "next_mo", "MO]", show=False),
-        Binding("left_square_bracket", "prev_mo", "[MO", show=False),
+        Binding("right_square_bracket", "next_animation_step", "Frame]", show=False),
+        Binding("left_square_bracket", "prev_animation_step", "[Frame", show=False),
         Binding("e", "export_png", "Export"),
         Binding("number_sign", "toggle_atom_numbers", "#Nums"),
         Binding("n", "panel_next", "Next", priority=True),
@@ -423,16 +423,22 @@ class MoltuiApp(App):
         if action == "toggle_normal_mode_panel":
             if self.normal_mode_data is None:
                 return False
-        if action in (
-            "next_mode",
-            "prev_mode",
-            "toggle_playback",
-            "next_animation_step",
-            "prev_animation_step",
-        ):
+        if action in ("next_mode", "prev_mode"):
             if self._view_mode != _VIEW_NORMAL:
                 return False
-            if not self._has_animation():
+            if self.normal_mode_data is None or self.normal_mode_data.mode_vectors.shape[0] == 0:
+                return False
+        if action in ("toggle_playback", "next_animation_step", "prev_animation_step"):
+            if self._view_mode == _VIEW_NORMAL:
+                if (
+                    self.normal_mode_data is None
+                    or self.normal_mode_data.mode_vectors.shape[0] == 0
+                ):
+                    return False
+            elif self._view_mode == _VIEW_GEOMETRY:
+                if self.trajectory_data is None or self.trajectory_data.frames.shape[0] <= 1:
+                    return False
+            else:
                 return False
         if action in ("panel_next", "panel_prev"):
             if not self._panel_is_open():
@@ -571,6 +577,8 @@ class MoltuiApp(App):
             atom.position = coords[i].copy()
         view = self.query_one(MoleculeView)
         view._invalidate_cache()
+        if self._view_mode == _VIEW_GEOMETRY:
+            self.query_one(GeometryPanel).refresh_measurements()
         self._update_title()
 
     def _reset_normal_mode_geometry(self) -> None:

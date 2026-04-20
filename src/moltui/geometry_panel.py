@@ -50,6 +50,18 @@ class GeometryPanel(Widget):
         if self.is_mounted:
             self._populate_tables()
 
+    def refresh_measurements(self) -> None:
+        """Recompute displayed geometry values while preserving table selection."""
+        if self._molecule is None or not self.is_mounted:
+            return
+        tab_ids = ("tab-bonds", "tab-angles", "tab-dihedrals")
+        selected_row_keys = {
+            tab_id: self._current_row_key_value(self._table_for_tab(tab_id)) for tab_id in tab_ids
+        }
+        self._populate_tables(selected_row_keys)
+        tabs = self.query_one(TabbedContent)
+        self._emit_current_highlight(self._table_for_tab(tabs.active))
+
     def on_mount(self) -> None:
         if self._molecule is not None:
             self._populate_tables()

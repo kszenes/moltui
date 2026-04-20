@@ -346,6 +346,70 @@ async def test_mode_specific_actions_disabled_outside_active_mode() -> None:
 
 
 @pytest.mark.asyncio
+async def test_brackets_and_space_control_multixyz_frames_in_geometry_mode() -> None:
+    _install_skimage_stub()
+
+    from textual.coordinate import Coordinate
+    from textual.widgets import DataTable
+
+    from moltui.app import MoltuiApp, TrajectoryData
+    from moltui.elements import Atom, Molecule, get_element
+    from moltui.geometry_panel import GeometryPanel
+
+    atoms = [
+        Atom(get_element("H"), np.array([0.0, 0.0, 0.0])),
+        Atom(get_element("H"), np.array([0.7, 0.0, 0.0])),
+    ]
+    molecule = Molecule(atoms=atoms, bonds=[])
+    molecule.detect_bonds()
+
+    frames = np.array(
+        [
+            [[0.0, 0.0, 0.0], [0.7, 0.0, 0.0]],
+            [[0.1, 0.0, 0.0], [0.9, 0.0, 0.0]],
+            [[0.2, 0.0, 0.0], [1.1, 0.0, 0.0]],
+        ],
+        dtype=np.float64,
+    )
+    trajectory_data = TrajectoryData(frames=frames)
+
+    app = MoltuiApp(
+        molecule=molecule,
+        filepath="traj.xyz",
+        trajectory_data=trajectory_data,
+    )
+
+    async with app.run_test() as pilot:
+        panel = app.query_one(GeometryPanel)
+        bond_table = panel.query_one("#bonds-table", DataTable)
+        initial_length = bond_table.get_cell_at(Coordinate(0, 2))
+
+        assert app.check_action("next_animation_step", tuple()) is True
+        assert app.check_action("prev_animation_step", tuple()) is True
+        assert app.check_action("toggle_playback", tuple()) is True
+
+        await pilot.press("]")
+        await pilot.pause()
+        assert app.trajectory_data is not None
+        assert app.trajectory_data.frame_index == 1
+        updated_length = bond_table.get_cell_at(Coordinate(0, 2))
+        assert updated_length != initial_length
+        assert updated_length == "0.8000"
+
+        await pilot.press("[")
+        await pilot.pause()
+        assert app.trajectory_data.frame_index == 0
+
+        await pilot.press("space")
+        await pilot.pause()
+        assert app._is_playing
+
+        await pilot.press("space")
+        await pilot.pause()
+        assert not app._is_playing
+
+
+@pytest.mark.asyncio
 async def test_sidebar_table_has_initial_focus_on_open() -> None:
     _install_skimage_stub()
 

@@ -51,8 +51,6 @@ _VIEW_GEOMETRY = "geometry"
 _VIEW_MO = "mo"
 _VIEW_NORMAL = "normal"
 _PANEL_NAV_DEBOUNCE_SEC = 0.06
-_HQ_EXPORT_MO_GRID = (96, 96, 96)
-_HQ_EXPORT_CUBE_UPSAMPLE = 2
 
 
 class ExportRenderKwargs(TypedDict):
@@ -94,33 +92,6 @@ def _compute_mo_isosurfaces(
 
     cube_data = evaluate_mo(molden_data, mo_idx, grid_shape=grid_shape)
     return extract_isosurfaces(cube_data, isovalue=isovalue)
-
-
-def _compute_export_isosurfaces(
-    show_orbitals: bool,
-    current_isosurfaces: list[IsosurfaceMesh],
-    cube_data: CubeData | None,
-    molden_data,
-    current_mo: int,
-    isovalue: float,
-) -> list[IsosurfaceMesh] | None:
-    """Compute higher-detail isosurfaces for PNG export."""
-    if not show_orbitals:
-        return None
-    if molden_data is not None and molden_data.n_mos > 0:
-        return _compute_mo_isosurfaces(
-            molden_data,
-            current_mo,
-            isovalue,
-            grid_shape=_HQ_EXPORT_MO_GRID,
-        )
-    if cube_data is not None:
-        return extract_isosurfaces(
-            cube_data,
-            isovalue=isovalue,
-            upsample=_HQ_EXPORT_CUBE_UPSAMPLE,
-        )
-    return current_isosurfaces
 
 
 @dataclass
@@ -881,15 +852,7 @@ class MoltuiApp(App):
         mol = view.molecule
         if not view.show_bonds:
             mol = Molecule(atoms=mol.atoms, bonds=[])
-        isos = await asyncio.to_thread(
-            _compute_export_isosurfaces,
-            view.show_orbitals,
-            self._isosurfaces,
-            self._cube_data,
-            self.molden_data,
-            self.current_mo,
-            self.isovalue,
-        )
+        isos = self._isosurfaces if view.show_orbitals else None
 
         export_w, export_h = 1600, 1200
         bg = (0, 0, 0) if view.dark_bg else (255, 255, 255)

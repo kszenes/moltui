@@ -4,6 +4,7 @@ import asyncio
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 from rich.segment import Segment
@@ -50,15 +51,76 @@ _VIEW_GEOMETRY = "geometry"
 _VIEW_MO = "mo"
 _VIEW_NORMAL = "normal"
 _PANEL_NAV_DEBOUNCE_SEC = 0.06
+_HQ_EXPORT_MO_GRID = (96, 96, 96)
+_HQ_EXPORT_CUBE_UPSAMPLE = 2
+
+
+class ExportRenderKwargs(TypedDict):
+    ssaa: int
+    pan: tuple[float, float]
+    licorice: bool
+    vdw: bool
+    ambient: float
+    diffuse: float
+    specular: float
+    shininess: float
+    atom_scale: float
+    bond_radius: float
+
+
+def _export_render_kwargs(view: "MoleculeView") -> ExportRenderKwargs:
+    """Build export-time renderer settings from current view state."""
+    return {
+        "ssaa": 2,
+        "pan": (view.pan_x, view.pan_y),
+        "licorice": view.licorice,
+        "vdw": view.vdw,
+        "ambient": view.ambient,
+        "diffuse": view.diffuse,
+        "specular": view.specular,
+        "shininess": view.shininess,
+        "atom_scale": view.atom_scale,
+        "bond_radius": view.bond_radius,
+    }
 
 
 def _compute_mo_isosurfaces(
-    molden_data, mo_idx: int, isovalue: float = 0.05
+    molden_data,
+    mo_idx: int,
+    isovalue: float = 0.05,
+    grid_shape: tuple[int, int, int] = (60, 60, 60),
 ) -> list[IsosurfaceMesh]:
     from .molden import evaluate_mo
 
-    cube_data = evaluate_mo(molden_data, mo_idx)
+    cube_data = evaluate_mo(molden_data, mo_idx, grid_shape=grid_shape)
     return extract_isosurfaces(cube_data, isovalue=isovalue)
+
+
+def _compute_export_isosurfaces(
+    show_orbitals: bool,
+    current_isosurfaces: list[IsosurfaceMesh],
+    cube_data: CubeData | None,
+    molden_data,
+    current_mo: int,
+    isovalue: float,
+) -> list[IsosurfaceMesh] | None:
+    """Compute higher-detail isosurfaces for PNG export."""
+    if not show_orbitals:
+        return None
+    if molden_data is not None and molden_data.n_mos > 0:
+        return _compute_mo_isosurfaces(
+            molden_data,
+            current_mo,
+            isovalue,
+            grid_shape=_HQ_EXPORT_MO_GRID,
+        )
+    if cube_data is not None:
+        return extract_isosurfaces(
+            cube_data,
+            isovalue=isovalue,
+            upsample=_HQ_EXPORT_CUBE_UPSAMPLE,
+        )
+    return current_isosurfaces
 
 
 @dataclass
@@ -370,8 +432,9 @@ class MoltuiApp(App):
         view.set_molecule(self.molecule, self._isosurfaces)
         panel = self.query_one(GeometryPanel)
         panel.set_molecule(self.molecule)
-        if self.molden_data is not None and self.molden_data.n_mos > 0:
+        if self._has_molden_mos():
             md = self.molden_data
+            assert md is not None
             mo_panel = self.query_one(MOPanel)
             mo_panel.set_mo_data(
                 energies=md.mo_energies.tolist(),
@@ -391,8 +454,11 @@ class MoltuiApp(App):
                 ),
                 current_mode=self.normal_mode_data.mode_index,
             )
-        initial_mode = self._available_view_modes()[0]
-        self._set_view_mode(initial_mode, reveal_panel=True)
+        if self._has_cube_mo() and not self._has_molden_mos():
+            self._set_view_mode(_VIEW_MO, reveal_panel=False)
+        else:
+            initial_mode = self._available_view_modes()[0]
+            self._set_view_mode(initial_mode, reveal_panel=True)
 
     def _panel_is_open(self) -> bool:
         return (
@@ -402,19 +468,32 @@ class MoltuiApp(App):
             or self.query_one(VisualPanel).has_class("visible")
         )
 
+    def _has_molden_mos(self) -> bool:
+        return self.molden_data is not None and self.molden_data.n_mos > 0
+
+    def _has_cube_mo(self) -> bool:
+        return (
+            self.molden_data is None
+            and self._cube_data is not None
+            and Path(self.filepath).suffix.lower() == ".cube"
+        )
+
     def _available_view_modes(self) -> list[str]:
         modes: list[str] = []
-        if self.molden_data is not None and self.molden_data.n_mos > 0:
+        if self._has_molden_mos() or self._has_cube_mo():
             modes.append(_VIEW_MO)
         if self.normal_mode_data is not None:
             modes.append(_VIEW_NORMAL)
         modes.append(_VIEW_GEOMETRY)
         return modes
 
-    def check_action(self, action: str, _parameters: tuple[object, ...]) -> bool | None:
-        if action in ("toggle_mo_panel", "next_mo", "prev_mo"):
-            has_mo = self.molden_data is not None and self.molden_data.n_mos > 0
-            if not has_mo and not self._isosurfaces:
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        _ = parameters
+        if action == "toggle_mo_panel":
+            if not self._has_molden_mos() and not self._has_cube_mo():
+                return False
+        if action in ("next_mo", "prev_mo"):
+            if not self._has_molden_mos():
                 return False
         if action in ("next_mo", "prev_mo", "toggle_orbitals") and self._view_mode != _VIEW_MO:
             return False
@@ -802,7 +881,15 @@ class MoltuiApp(App):
         mol = view.molecule
         if not view.show_bonds:
             mol = Molecule(atoms=mol.atoms, bonds=[])
-        isos = self._isosurfaces if view.show_orbitals else None
+        isos = await asyncio.to_thread(
+            _compute_export_isosurfaces,
+            view.show_orbitals,
+            self._isosurfaces,
+            self._cube_data,
+            self.molden_data,
+            self.current_mo,
+            self.isovalue,
+        )
 
         export_w, export_h = 1600, 1200
         bg = (0, 0, 0) if view.dark_bg else (255, 255, 255)
@@ -816,16 +903,7 @@ class MoltuiApp(App):
             view.camera_distance,
             bg_color=bg,
             isosurfaces=isos,
-            ssaa=2,
-            pan=(view.pan_x, view.pan_y),
-            licorice=view.licorice,
-            vdw=view.vdw,
-            ambient=0.31,
-            diffuse=0.72,
-            specular=0.42,
-            shininess=96.0,
-            atom_scale=view.atom_scale,
-            bond_radius=view.bond_radius,
+            **_export_render_kwargs(view),
         )
 
         try:
@@ -1053,13 +1131,14 @@ class MoltuiApp(App):
                 self._stop_playback()
             if self.normal_mode_data is not None:
                 self._reset_normal_mode_geometry()
-            mo_panel = self.query_one(MOPanel)
-            if not self._panel_hidden:
-                mo_panel.add_class("visible")
             view.show_orbitals = True
-            mo_panel.select_mo(self.current_mo, center=True)
-            if not self._panel_hidden:
-                self._focus_panel_table(mo_panel, mo_panel.emit_current_highlight)
+            if self._has_molden_mos():
+                mo_panel = self.query_one(MOPanel)
+                if not self._panel_hidden:
+                    mo_panel.add_class("visible")
+                mo_panel.select_mo(self.current_mo, center=True)
+                if not self._panel_hidden:
+                    self._focus_panel_table(mo_panel, mo_panel.emit_current_highlight)
         elif mode == _VIEW_NORMAL:
             nm = self.normal_mode_data
             if nm is None:
@@ -1078,10 +1157,10 @@ class MoltuiApp(App):
         self._update_title()
 
     def action_toggle_mo_panel(self) -> None:
-        if self.molden_data is None or self.molden_data.n_mos == 0:
+        if not self._has_molden_mos() and not self._has_cube_mo():
             self.notify("No MO data (molden files only)", timeout=2)
             return
-        self._set_view_mode(_VIEW_MO)
+        self._set_view_mode(_VIEW_MO, reveal_panel=self._has_molden_mos())
 
     def action_toggle_normal_mode_panel(self) -> None:
         if self.normal_mode_data is None:

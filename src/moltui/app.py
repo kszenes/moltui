@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,6 +49,7 @@ _ZERO_MODE_FREQ_TOL_CM1 = 10.0
 _VIEW_GEOMETRY = "geometry"
 _VIEW_MO = "mo"
 _VIEW_NORMAL = "normal"
+_PANEL_NAV_DEBOUNCE_SEC = 0.06
 
 
 def _compute_mo_isosurfaces(
@@ -350,6 +352,7 @@ class MoltuiApp(App):
         self._playback_timer = None
         self._is_playing = False
         self._playback_interval_sec = 0.08
+        self._last_panel_nav_at = 0.0
         self.title = self._title_text()
 
     def compose(self) -> ComposeResult:
@@ -913,6 +916,11 @@ class MoltuiApp(App):
             return
         if not self._panel_is_open():
             return
+        now = time.monotonic()
+        if now - self._last_panel_nav_at < _PANEL_NAV_DEBOUNCE_SEC:
+            event.stop()
+            return
+        self._last_panel_nav_at = now
         if event.key == "n":
             self.action_panel_next()
         else:

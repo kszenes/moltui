@@ -310,8 +310,6 @@ class MoltuiApp(App):
         Binding("V", "toggle_visual", "Visual"),
         Binding("m", "cycle_view_mode_next", "Mode"),
         Binding("M", "cycle_view_mode_prev", "Mode-", show=False),
-        Binding("n", "panel_next", "Next", priority=True),
-        Binding("p", "panel_prev", "Prev", priority=True),
         Binding("S", "toggle_sidebar", "Sidebar"),
         Binding("space", "toggle_playback", "Play"),
         Binding("right_square_bracket", "next_animation_step", "Frame]", show=False),

@@ -888,33 +888,68 @@ class MoltuiApp(App):
                 self.normal_mode_data.phase = 0.0
                 self._apply_active_animation_geometry()
 
+    def _half_page_rows(self, dt: DataTable) -> int:
+        viewport_rows = max(1, dt.size.height - 1)
+        return max(1, viewport_rows // 2)
+
+    def _move_active_table_by(self, delta_rows: int) -> bool:
+        dt = self._active_panel_table()
+        if dt is None or dt.row_count == 0:
+            return False
+        target = max(0, min(dt.row_count - 1, dt.cursor_row + delta_rows))
+        dt.move_cursor(row=target, scroll=True)
+        self._emit_active_panel_selection(dt)
+        return True
+
+    def _jump_active_table_to(self, row: int) -> bool:
+        dt = self._active_panel_table()
+        if dt is None or dt.row_count == 0:
+            return False
+        target = max(0, min(dt.row_count - 1, row))
+        dt.move_cursor(row=target, scroll=True)
+        self._emit_active_panel_selection(dt)
+        return True
+
     def action_panel_next(self) -> None:
         if self.query_one(VisualPanel).has_class("visible"):
             self.screen.focus_next()
             return
-        dt = self._active_panel_table()
-        if dt is not None and dt.row_count > 0:
-            target = min(dt.row_count - 1, dt.cursor_row + 1)
-            dt.move_cursor(row=target, scroll=True)
-            self._emit_active_panel_selection(dt)
+        self._move_active_table_by(1)
 
     def action_panel_prev(self) -> None:
         if self.query_one(VisualPanel).has_class("visible"):
             self.screen.focus_previous()
             return
-        dt = self._active_panel_table()
-        if dt is not None and dt.row_count > 0:
-            target = max(0, dt.cursor_row - 1)
-            dt.move_cursor(row=target, scroll=True)
-            self._emit_active_panel_selection(dt)
+        self._move_active_table_by(-1)
 
     def on_key(self, event: Key) -> None:
-        # Ensure n/p panel navigation works while DataTable has focus.
-        if event.key not in ("n", "p"):
+        # Ensure table navigation keys work while DataTable has focus.
+        if event.key not in ("n", "p", "d", "u", "ctrl+d", "ctrl+u", "g", "G"):
             return
         if self.query_one(VisualPanel).has_class("visible"):
             return
         if not self._panel_is_open():
+            return
+        if event.key in ("d", "ctrl+d"):
+            dt = self._active_panel_table()
+            if dt is not None:
+                self._move_active_table_by(self._half_page_rows(dt))
+                event.stop()
+            return
+        if event.key in ("u", "ctrl+u"):
+            dt = self._active_panel_table()
+            if dt is not None:
+                self._move_active_table_by(-self._half_page_rows(dt))
+                event.stop()
+            return
+        if event.key == "g":
+            if self._jump_active_table_to(0):
+                event.stop()
+            return
+        if event.key == "G":
+            dt = self._active_panel_table()
+            if dt is not None and self._jump_active_table_to(dt.row_count - 1):
+                event.stop()
             return
         now = time.monotonic()
         if now - self._last_panel_nav_at < _PANEL_NAV_DEBOUNCE_SEC:

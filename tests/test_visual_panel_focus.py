@@ -138,3 +138,42 @@ async def test_tab_and_shift_tab_adjust_visual_slider_value() -> None:
         await pilot.press("shift+tab")
         await pilot.pause()
         assert isovalue.value == pytest.approx(start)
+
+
+@pytest.mark.asyncio
+async def test_n_and_p_navigate_focus_within_visual_panel() -> None:
+    _install_skimage_stub()
+
+    from moltui.app import MoltuiApp
+    from moltui.elements import Atom, Molecule, get_element
+    from moltui.visual_panel import Slider, VisualPanel, _NavRadioSet
+
+    atoms = [
+        Atom(get_element("O"), np.array([0.0, 0.0, 0.0])),
+        Atom(get_element("H"), np.array([0.9, 0.0, 0.0])),
+        Atom(get_element("H"), np.array([-0.3, 0.8, 0.0])),
+    ]
+    molecule = Molecule(atoms=atoms, bonds=[])
+    molecule.detect_bonds()
+    app = MoltuiApp(molecule=molecule, filepath="sample.xyz")
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("V")
+        await pilot.pause()
+
+        visual_panel = app.query_one(VisualPanel)
+        style_selector = visual_panel.query_one(_NavRadioSet)
+        atom_scale = visual_panel.query_one("#slider-atom-scale", Slider)
+
+        assert visual_panel.has_class("visible")
+        assert style_selector.has_focus
+
+        await pilot.press("n")
+        await pilot.pause()
+        assert atom_scale.has_focus
+        assert not style_selector.has_focus
+
+        await pilot.press("p")
+        await pilot.pause()
+        assert style_selector.has_focus

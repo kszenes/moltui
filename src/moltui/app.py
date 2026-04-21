@@ -926,9 +926,21 @@ class MoltuiApp(App):
         # Ensure table navigation keys work while DataTable has focus.
         if event.key not in ("n", "p", "d", "u", "ctrl+d", "ctrl+u", "g", "G"):
             return
-        if self.query_one(VisualPanel).has_class("visible"):
-            return
         if not self._panel_is_open():
+            return
+        if event.key in ("n", "p"):
+            now = time.monotonic()
+            if now - self._last_panel_nav_at < _PANEL_NAV_DEBOUNCE_SEC:
+                event.stop()
+                return
+            self._last_panel_nav_at = now
+            if event.key == "n":
+                self.action_panel_next()
+            else:
+                self.action_panel_prev()
+            event.stop()
+            return
+        if self.query_one(VisualPanel).has_class("visible"):
             return
         if event.key in ("d", "ctrl+d"):
             dt = self._active_panel_table()
@@ -951,16 +963,6 @@ class MoltuiApp(App):
             if dt is not None and self._jump_active_table_to(dt.row_count - 1):
                 event.stop()
             return
-        now = time.monotonic()
-        if now - self._last_panel_nav_at < _PANEL_NAV_DEBOUNCE_SEC:
-            event.stop()
-            return
-        self._last_panel_nav_at = now
-        if event.key == "n":
-            self.action_panel_next()
-        else:
-            self.action_panel_prev()
-        event.stop()
 
     def action_close_panel(self) -> None:
         geom = self.query_one(GeometryPanel)

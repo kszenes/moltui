@@ -125,6 +125,8 @@ Toggle between **light** and **dark** mode with `i`.
 | `S` | Toggle current **sidebar** (hide/show) |
 | `V` | Toggle **Visual settings** panel |
 | `n/p` | **Next/previous** row in the active sidebar table |
+| `d/u` | Half page **down/up** in datatable |
+| `g/G` | **Top/bottom** of the datatable |
 
 ### Geometry panel
 

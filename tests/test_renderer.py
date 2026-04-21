@@ -71,6 +71,72 @@ def _h2_molecule() -> Molecule:
     return mol
 
 
+def _bond_samples_in_bounds(
+    renderer: ImageRenderer, p1: np.ndarray, p2: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return all in-bounds bond sample pixels and depths."""
+    sx1, sy1, sz1 = renderer._project(p1)
+    sx2, sy2, sz2 = renderer._project(p2)
+    assert not np.isnan(sx1)
+    assert not np.isnan(sx2)
+
+    scale = min(renderer.width, renderer.height) / 2
+    mid_z = (sz1 + sz2) / 2
+    pr = renderer.bond_radius * renderer.fov / mid_z * scale
+
+    dx = sx2 - sx1
+    dy = sy2 - sy1
+    length = np.sqrt(dx * dx + dy * dy)
+    assert length >= 1.0
+
+    nx, ny = -dy / length, dx / length
+    half_w = max(1.0, pr)
+    steps = int(length * 3) + 1
+
+    hw = int(half_w + 1)
+    ts = np.linspace(0, 1, steps + 1)
+    offsets = np.arange(-hw, hw + 1, dtype=np.float64)
+    d_norm = offsets / half_w
+    off_mask = np.abs(d_norm) <= 1.0
+    offsets = offsets[off_mask]
+    d_norm = d_norm[off_mask]
+
+    cxs = sx1 + dx * ts
+    cys = sy1 + dy * ts
+    czs = sz1 + (sz2 - sz1) * ts
+
+    all_px = np.round(cxs[:, None] + nx * offsets[None, :]).astype(int)
+    all_py = np.round(cys[:, None] + ny * offsets[None, :]).astype(int)
+    cyl_nz = np.sqrt(1.0 - d_norm * d_norm)
+    pz = czs[:, None] - renderer.bond_radius * cyl_nz[None, :]
+
+    flat_px = all_px.ravel()
+    flat_py = all_py.ravel()
+    flat_pz = pz.ravel()
+
+    valid = (
+        (flat_px >= 0) & (flat_px < renderer.width) & (flat_py >= 0) & (flat_py < renderer.height)
+    )
+    return flat_px[valid], flat_py[valid], flat_pz[valid]
+
+
+def _count_internal_pinholes(mask: np.ndarray) -> int:
+    """Count empty pixels surrounded by mostly-filled 3x3 neighborhoods."""
+    if not mask.any():
+        return 0
+    ys, xs = np.where(mask)
+    y0, y1 = ys.min(), ys.max()
+    x0, x1 = xs.min(), xs.max()
+    sub = mask[y0 : y1 + 1, x0 : x1 + 1]
+    holes = 0
+    h, w = sub.shape
+    for y in range(1, h - 1):
+        for x in range(1, w - 1):
+            if not sub[y, x] and sub[y - 1 : y + 2, x - 1 : x + 2].sum() >= 7:
+                holes += 1
+    return holes
+
+
 class TestRenderScene:
     def test_output_shape(self):
         mol = _h2_molecule()
@@ -150,6 +216,39 @@ class TestRenderScene:
             bond_radius=0.15,
         )
         assert hit.any()
+
+
+class TestBondRasterization:
+    def test_bond_keeps_nearest_depth_per_pixel_when_samples_overlap(self):
+        r = ImageRenderer(120, 80)
+        r.bond_radius = 0.22
+        p1 = np.array([-0.8, -0.2, 4.2])
+        p2 = np.array([0.9, 0.7, 5.1])
+
+        flat_px, flat_py, flat_pz = _bond_samples_in_bounds(r, p1, p2)
+        pixel_ids = flat_py * r.width + flat_px
+        unique, counts = np.unique(pixel_ids, return_counts=True)
+        assert (counts > 1).any(), "test setup must include duplicate pixel samples"
+
+        expected_flat = np.full(r.width * r.height, np.inf, dtype=np.float64)
+        np.minimum.at(expected_flat, pixel_ids, flat_pz)
+        expected = expected_flat.reshape(r.height, r.width)
+
+        r.render_bond(p1, p2, (255, 255, 255), (255, 255, 255))
+
+        expected_hit = np.isfinite(expected)
+        np.testing.assert_array_equal(np.isfinite(r.z_buf), expected_hit)
+        np.testing.assert_allclose(r.z_buf[expected_hit], expected[expected_hit], rtol=0, atol=1e-9)
+
+    def test_bond_hit_mask_has_no_internal_pinhole_for_steep_diagonal(self):
+        r = ImageRenderer(160, 120)
+        r.bond_radius = 0.08
+        p1 = np.array([1.03759371, -0.78793903, 3.50547172])
+        p2 = np.array([-0.30631733, 0.43301329, 5.7617411])
+
+        r.render_bond(p1, p2, (255, 255, 255), (255, 255, 255))
+        hit = np.isfinite(r.z_buf)
+        assert _count_internal_pinholes(hit) == 0
 
 
 # --- Smoke test: render temp XYZ files ---

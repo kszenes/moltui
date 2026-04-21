@@ -149,7 +149,8 @@ class ImageRenderer:
 
         nx, ny = -dy / length, dx / length  # perpendicular
         half_w = max(1.0, pr)
-        steps = int(length * 2) + 1
+        # Slightly denser axial sampling avoids occasional pinholes on steep diagonals.
+        steps = int(length * 3) + 1
 
         # Vectorize: all (step, offset) combinations at once
         hw = int(half_w + 1)
@@ -225,6 +226,24 @@ class ImageRenderer:
 
         if len(flat_px) == 0:
             return
+
+        # If multiple samples map to the same pixel, keep the nearest one.
+        # Fast path: when all pixels are unique, avoid the dedupe work.
+        pixel_ids = flat_py * self.width + flat_px
+        _, inverse, counts = np.unique(pixel_ids, return_inverse=True, return_counts=True)
+        if counts.max() > 1:
+            nearest_depth = np.full(counts.shape, np.inf, dtype=flat_pz.dtype)
+            np.minimum.at(nearest_depth, inverse, flat_pz)
+            nearest_mask = flat_pz <= (nearest_depth[inverse] + 1e-12)
+            nearest_idx = np.flatnonzero(nearest_mask)
+            nearest_groups = inverse[nearest_idx]
+            _, first_pos = np.unique(nearest_groups, return_index=True)
+            keep_idx = nearest_idx[first_pos]
+            flat_px = flat_px[keep_idx]
+            flat_py = flat_py[keep_idx]
+            flat_pz = flat_pz[keep_idx]
+            flat_int = flat_int[keep_idx]
+            is_first_half = is_first_half[keep_idx]
 
         self.z_buf[flat_py, flat_px] = flat_pz
 

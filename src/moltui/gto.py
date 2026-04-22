@@ -119,9 +119,15 @@ def parse_molden(filepath: str | Path) -> MoldenBasis:
             i += 1
             while i < len(lines) and _section_tag(lines[i]) is None:
                 parts = lines[i].split()
-                # Support for molden files form Molcas
-                isMolcas = len(parts) == 1 and parts[0].isdigit()
-                if len(parts) >= 2 and parts[0].isdigit() or isMolcas: #Add Molcas support here
+
+                def starts_atom(parts: list[str]) -> bool:
+                    # Standard Molden format: <atom_idx> 0
+                    # Molcas format:          <atom_idx>
+                    is_molcas = len(parts) == 1 and parts[0].isdigit()
+                    is_standard = len(parts) == 2 and parts[0].isdigit() and parts[1] == "0"
+                    return is_molcas or is_standard
+
+                if starts_atom(parts):
                     atom_idx = int(parts[0]) - 1  # 1-based to 0-based
                     i += 1
                     # Read shells for this atom
@@ -130,9 +136,7 @@ def parse_molden(filepath: str | Path) -> MoldenBasis:
                         if not sline or _section_tag(sline) is not None:
                             break
                         sparts = sline.split()
-                        if len(sparts) >= 2 and sparts[0].isdigit():
-                            break
-                        elif isMolcas and len(sparts) == 1 and sparts[0].isdigit(): #Add Molcas support here
+                        if starts_atom(sparts):
                             break
                         shell_type = sparts[0].lower()
                         nprim = int(sparts[1])
@@ -213,7 +217,16 @@ def parse_molden(filepath: str | Path) -> MoldenBasis:
                     if current_coeffs:
                         mo_coeffs_list.append(current_coeffs)
                         current_coeffs = []
-                    mo_symmetries.append(mline.split("=")[1].strip())
+                    sym = mline.split("=")[1].strip()
+                    # Remove leading digits
+                    sym = sym.lstrip("0123456789")
+                    # Capitalize (except trailing g/u)
+                    if sym and sym[-1].lower() in ("g", "u"):
+                        sym_core = sym[:-1].capitalize()
+                        sym = sym_core + sym[-1].lower()
+                    else:
+                        sym = sym.capitalize()
+                    mo_symmetries.append(sym)
                 elif mline.startswith("Ene="):
                     mo_energies.append(_parse_float(mline.split("=")[1].strip()))
                 elif mline.startswith("Spin="):

@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from moltui.gto import eval_gto, parse_molden
-from moltui.molden import load_molden_data
+from moltui.molden import load_molden_data, parse_molden_atoms
 
 
 def _write_molden(tmp_path: Path, contents: str) -> Path:
@@ -232,3 +232,45 @@ vibration 1
     assert data.normal_modes.shape[0] == 1
     assert data.mode_frequencies is not None
     assert np.isclose(data.mode_frequencies[-1], 0.0)
+
+
+def test_parse_molden_openmolcas_style_gto_and_atom_labels(tmp_path: Path) -> None:
+    """OpenMolcas uses one integer per GTO center (no trailing 0) and atom names like C1."""
+    path = _write_molden(
+        tmp_path,
+        """[Molden Format]
+[Atoms] AU
+C1 6 12.0 0.0 0.0 0.0
+H2 1 1.0 0.0 0.0 1.0
+[GTO]
+1
+s 1
+1.0 1.0
+2
+s 1
+1.0 1.0
+
+[MO]
+Sym= A1
+Ene= -0.5
+Spin= Alpha
+Occup= 2.0
+1 0.7
+2 0.7
+""",
+    )
+
+    basis = parse_molden(path)
+    assert basis.atom_symbols == ["C1", "H2"]
+    assert len(basis.shells) == 2
+    assert np.allclose(basis.shells[0].center, [0.0, 0.0, 0.0])
+    assert np.allclose(basis.shells[1].center, [0.0, 0.0, 1.0])
+    assert basis.mo_coefficients.shape == (2, 1)
+
+    data = load_molden_data(path)
+    assert data.molecule.atoms[0].element.symbol == "C"
+    assert data.molecule.atoms[1].element.symbol == "H"
+
+    mol = parse_molden_atoms(path)
+    assert mol.atoms[0].element.symbol == "C"
+    assert mol.atoms[1].element.symbol == "H"

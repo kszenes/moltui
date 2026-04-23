@@ -156,7 +156,7 @@ class VisualPanel(Widget):
             self.phase_step = phase_step
 
     class TrajectorySpeedChanged(Message):
-        def __init__(self, trajectory_fps: int) -> None:
+        def __init__(self, trajectory_fps: float) -> None:
             super().__init__()
             self.trajectory_fps = trajectory_fps
 
@@ -200,8 +200,8 @@ class VisualPanel(Widget):
                 atom_scale=atom_scale,
                 bond_radius=bond_radius,
                 isovalue=isovalue,
-                vibrational_phase_step = vibrational_phase_step,
-                trajectory_fps = trajectory_fps,
+                vibrational_phase_step=vibrational_phase_step,
+                trajectory_fps=trajectory_fps,
             )
 
     def _sync_widgets(
@@ -215,7 +215,7 @@ class VisualPanel(Widget):
         bond_radius: float,
         isovalue: float = 0.05,
         vibrational_phase_step: float = 0.30,
-        trajectory_fps: float = 12.0
+        trajectory_fps: float = 12.0,
     ) -> None:
         radio_set = self.query_one(_NavRadioSet)
         if self._licorice:
@@ -238,6 +238,24 @@ class VisualPanel(Widget):
         self.refresh()
 
     def compose(self) -> ComposeResult:
+        yield Label("Animation", id="label-animation")
+        yield Slider(
+            "Vibrational Speed",
+            value=0.30,
+            min_val=0.05,
+            max_val=1.50,
+            step=0.05,
+            id="slider-vibrational-speed",
+        )
+        yield Slider(
+            "Trajectory FPS",
+            value=12.0,
+            min_val=1.0,
+            max_val=60.0,
+            step=1.0,
+            decimals=0,
+            id="slider-trajectory-speed",
+        )
         yield Label("Isosurface", id="label-isovalue")
         yield Slider(
             "Isovalue",
@@ -299,24 +317,6 @@ class VisualPanel(Widget):
             step=4.0,
             id="slider-shininess",
         )
-        yield Label("Animation", id="label-animation")
-        yield Slider(
-            "Vibrational Speed",
-            value=0.30,
-            min_val=0.05,
-            max_val=1.50,
-            step=0.05,
-            id="slider-vibrational-speed",
-        )
-        yield Slider(
-            "Trajectory fps",
-            value=12.0,
-            min_val=1.0,
-            max_val=30.0,
-            step=1.0,
-            decimals=0,
-            id="slider-trajectory-speed"
-        )
         yield Static(
             "n/p nav; (shift-)tab toggle",
             id="visual-help",
@@ -328,9 +328,9 @@ class VisualPanel(Widget):
         self.query_one("#label-sizes", Label).display = not self._vdw
         self.query_one("#label-isovalue", Label).display = self._has_isosurfaces
         self.query_one("#slider-isovalue", Slider).display = self._has_isosurfaces
-        self.query_one("#slider-vibrational-speed",Slider).display = self._has_normal_modes
-        self.query_one("#slider-trajectory-speed",Slider).display = self._has_trajectory
-        self.query_one("#label-animation",Label).display = (
+        self.query_one("#slider-vibrational-speed", Slider).display = self._has_normal_modes
+        self.query_one("#slider-trajectory-speed", Slider).display = self._has_trajectory
+        self.query_one("#label-animation", Label).display = (
             self._has_normal_modes or self._has_trajectory
         )
 
@@ -344,9 +344,9 @@ class VisualPanel(Widget):
         sid = event.slider.id or ""
         if sid == "slider-isovalue":
             self.post_message(self.IsovalueChanged(event.value))
-        if sid == "slider-vibrational-speed":
+        elif sid == "slider-vibrational-speed":
             self.post_message(self.VibrationSpeedChanged(event.value))
-        if sid == "slider-trajectory-speed":
+        elif sid == "slider-trajectory-speed":
             self.post_message(self.TrajectorySpeedChanged(event.value))
         elif sid.startswith("slider-atom") or sid.startswith("slider-bond"):
             self.post_message(

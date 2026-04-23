@@ -1,5 +1,13 @@
 # Changelog
 
+## [v0.3.7] - 2026-04-23
+
+- Add animation speed slider (contributed by [@Dpgibney](https://github.com/Dpgibney) in [#11](https://github.com/kszenes/moltui/pull/11))
+
+## [v0.3.6] - 2026-04-21
+
+- Fix Molcas Molden format issue (contributed by [@fra-mazz](https://github.com/fra-mazza) in [#8](https://github.com/kszenes/moltui/pull/8))
+
 ## [v0.3.5] - 2026-04-21
 
 - Revert to fast rendering for export

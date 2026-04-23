@@ -384,7 +384,7 @@ class MoltuiApp(App):
         self._panel_hidden = False
         self._playback_timer = None
         self._is_playing = False
-        self._playback_interval_sec = 0.08
+        self._playback_interval_sec = 1.0 / 12.0
         self._last_panel_nav_at = 0.0
         self.title = self._title_text()
 
@@ -430,6 +430,8 @@ class MoltuiApp(App):
         else:
             initial_mode = self._available_view_modes()[0]
             self._set_view_mode(initial_mode, reveal_panel=True)
+        if self._has_trajectory:
+            self._start_playback()
 
     def _panel_is_open(self) -> bool:
         return (
@@ -545,12 +547,37 @@ class MoltuiApp(App):
         except NoMatches:
             return None
 
+    @property
+    def _has_normal_modes(self) -> bool:
+        return self.normal_mode_data is not None
+
+    @property
+    def _has_trajectory(self) -> bool:
+        return self.trajectory_data is not None and self.trajectory_data.frames.shape[0] > 1
+
+    def _sync_visual_panel(self, view: MoleculeView) -> None:
+        vis = self.query_one(VisualPanel)
+        vis.set_state(
+            licorice=view.licorice,
+            vdw=view.vdw,
+            ambient=view.ambient,
+            diffuse=view.diffuse,
+            specular=view.specular,
+            shininess=view.shininess,
+            atom_scale=view.atom_scale,
+            bond_radius=view.bond_radius,
+            isovalue=self.isovalue,
+            has_isosurfaces=bool(self._isosurfaces),
+            has_normal_modes=self._has_normal_modes,
+            has_trajectory=self._has_trajectory,
+            vibrational_phase_step=self.normal_mode_data.phase_step
+            if self.normal_mode_data is not None
+            else 0.0,
+            trajectory_fps=1.0 / self._playback_interval_sec,
+        )
+
     def _has_animation(self) -> bool:
-        if self.trajectory_data is not None and self.trajectory_data.frames.shape[0] > 1:
-            return True
-        if self.normal_mode_data is not None and self.normal_mode_data.mode_vectors.shape[0] > 0:
-            return True
-        return False
+        return self._has_normal_modes or self._has_trajectory
 
     def _is_linear_molecule(self) -> bool:
         coords = np.array([atom.position for atom in self.molecule.atoms], dtype=np.float64)
@@ -750,18 +777,7 @@ class MoltuiApp(App):
             view.bond_radius = 0.08
         vis = self.query_one(VisualPanel)
         if vis.has_class("visible"):
-            vis.set_state(
-                licorice=view.licorice,
-                vdw=view.vdw,
-                ambient=view.ambient,
-                diffuse=view.diffuse,
-                specular=view.specular,
-                shininess=view.shininess,
-                atom_scale=view.atom_scale,
-                bond_radius=view.bond_radius,
-                isovalue=self.isovalue,
-                has_isosurfaces=bool(self._isosurfaces),
-            )
+            self._sync_visual_panel(view)
         view._invalidate_cache()
 
     def action_toggle_atom_numbers(self) -> None:
@@ -1137,24 +1153,12 @@ class MoltuiApp(App):
         self._close_panels()
         view = self.query_one(MoleculeView)
         if not was_visible:
-            has_isosurfaces = bool(self._isosurfaces)
-            vis.set_state(
-                licorice=view.licorice,
-                vdw=view.vdw,
-                ambient=view.ambient,
-                diffuse=view.diffuse,
-                specular=view.specular,
-                shininess=view.shininess,
-                atom_scale=view.atom_scale,
-                bond_radius=view.bond_radius,
-                isovalue=self.isovalue,
-                has_isosurfaces=has_isosurfaces,
-            )
+            self._sync_visual_panel(view)
             vis.add_class("visible")
-            if has_isosurfaces:
-                focus_target = vis.query_one("#slider-isovalue", Slider)
-            else:
-                focus_target = vis.query_one(RadioSet)
+            focus_target = next(
+                (s for s in vis.query(Slider) if s.display),
+                vis.query_one(RadioSet),
+            )
             self.call_after_refresh(self.set_focus, focus_target)
         else:
             view.focus()
@@ -1168,18 +1172,7 @@ class MoltuiApp(App):
         view.bond_radius = 0.15 if event.licorice else 0.08
         vis = self.query_one(VisualPanel)
         if vis.has_class("visible"):
-            vis.set_state(
-                licorice=view.licorice,
-                vdw=view.vdw,
-                ambient=view.ambient,
-                diffuse=view.diffuse,
-                specular=view.specular,
-                shininess=view.shininess,
-                atom_scale=view.atom_scale,
-                bond_radius=view.bond_radius,
-                isovalue=self.isovalue,
-                has_isosurfaces=bool(self._isosurfaces),
-            )
+            self._sync_visual_panel(view)
         view._invalidate_cache()
 
     def on_visual_panel_isovalue_changed(self, event: VisualPanel.IsovalueChanged) -> None:
@@ -1205,6 +1198,21 @@ class MoltuiApp(App):
         view.atom_scale = event.atom_scale
         view.bond_radius = event.bond_radius
         view._invalidate_cache()
+
+    def on_visual_panel_vibration_speed_changed(
+        self, event: VisualPanel.VibrationSpeedChanged
+    ) -> None:
+        if self.normal_mode_data is None:
+            return
+        self.normal_mode_data.phase_step = event.phase_step
+
+    def on_visual_panel_trajectory_speed_changed(
+        self, event: VisualPanel.TrajectorySpeedChanged
+    ) -> None:
+        self._playback_interval_sec = 1.0 / event.trajectory_fps
+        if self._is_playing:
+            self._stop_playback()
+            self._start_playback()
 
     def on_mopanel_moselected(self, event: MOPanel.MOSelected) -> None:
         self._set_current_mo(event.mo_index)

@@ -384,7 +384,7 @@ class MoltuiApp(App):
         self._panel_hidden = False
         self._playback_timer = None
         self._is_playing = False
-        self._playback_interval_sec = 0.08
+        self._playback_interval_sec = 1.0 / 12.0
         self._last_panel_nav_at = 0.0
         self.title = self._title_text()
 
@@ -761,6 +761,16 @@ class MoltuiApp(App):
                 bond_radius=view.bond_radius,
                 isovalue=self.isovalue,
                 has_isosurfaces=bool(self._isosurfaces),
+                has_normal_modes=bool(
+                    self.normal_mode_data is not None and
+                    self.normal_mode_data.mode_vectors.shape[0]>0
+                ),
+                has_trajectory=bool(
+                    self.trajectory_data is not None and
+                    self.trajectory_data.frames.shape[0]>1
+                ),
+                vibrational_phase_step=self.normal_mode_data.phase_step if self.normal_mode_data is not None else 0.30,
+                trajectory_fps=1.0 / self._playback_interval_sec if self._playback_interval_sec > 0 else 12.0,
             )
         view._invalidate_cache()
 
@@ -1149,6 +1159,16 @@ class MoltuiApp(App):
                 bond_radius=view.bond_radius,
                 isovalue=self.isovalue,
                 has_isosurfaces=has_isosurfaces,
+                has_normal_modes=bool(
+                    self.normal_mode_data is not None and
+                    self.normal_mode_data.mode_vectors.shape[0]>0
+                ),
+                has_trajectory=bool(
+                    self.trajectory_data is not None and
+                    self.trajectory_data.frames.shape[0]>1
+                ),
+                vibrational_phase_step=self.normal_mode_data.phase_step if self.normal_mode_data is not None else 0.30,
+                trajectory_fps=1.0 / self._playback_interval_sec if self._playback_interval_sec > 0 else 12.0,
             )
             vis.add_class("visible")
             if has_isosurfaces:
@@ -1179,6 +1199,16 @@ class MoltuiApp(App):
                 bond_radius=view.bond_radius,
                 isovalue=self.isovalue,
                 has_isosurfaces=bool(self._isosurfaces),
+                has_normal_modes=bool(
+                    self.normal_mode_data is not None and
+                    self.normal_mode_data.mode_vectors.shape[0]>0
+                ),
+                has_trajectory=bool(
+                    self.trajectory_data is not None and
+                    self.trajectory_data.frames.shape[0]>1
+                ),
+                vibrational_phase_step=self.normal_mode_data.phase_step if self.normal_mode_data is not None else 0.30,
+                trajectory_fps=1.0 / self._playback_interval_sec if self._playback_interval_sec > 0 else 12.0,
             )
         view._invalidate_cache()
 
@@ -1205,6 +1235,23 @@ class MoltuiApp(App):
         view.atom_scale = event.atom_scale
         view.bond_radius = event.bond_radius
         view._invalidate_cache()
+
+    def on_visual_panel_vibration_speed_changed(
+        self, event: VisualPanel.VibrationSpeedChanged
+    ) -> None:
+        if self.normal_mode_data is None:
+            return
+        self.normal_mode_data.phase_step = event.phase_step
+
+    def on_visual_panel_trajectory_speed_changed(
+        self, event: VisualPanel.TrajectorySpeedChanged
+    ) -> None:
+        fps = max(event.trajectory_fps, 1e-3)
+        self._playback_interval_sec = 1.0 / fps
+        if self._is_playing:
+            self._stop_playback()
+            self._start_playback()
+
 
     def on_mopanel_moselected(self, event: MOPanel.MOSelected) -> None:
         self._set_current_mo(event.mo_index)

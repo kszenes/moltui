@@ -1,0 +1,8 @@
+rank_pbc_k_point 0
+rank_pbc_k_point_weight 0
+pbc_periodic_isSet 1 
+pbc_periodic 0 
+pbc_k_point_num_isSet 0 
+pbc_madelung_isSet 0 
+pbc_k_point
+pbc_k_point_weight

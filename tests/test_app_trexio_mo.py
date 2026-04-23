@@ -12,9 +12,9 @@ from moltui.app import _detect_filetype, _prepare_trexio_cli_session
 
 
 def _mf_h5() -> Path:
-    p = Path(__file__).resolve().parent / "trexio" / "mf.h5"
+    p = Path(__file__).resolve().parent.parent / "data" / "trexio" / "n2.h5"
     if not p.is_file():
-        pytest.skip("tests/trexio/mf.h5 fixture not present")
+        pytest.skip("data/TrexIO/n2.h5 not present")
     return p
 
 

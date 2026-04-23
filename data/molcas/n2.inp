@@ -1,0 +1,13 @@
+* Input Generated using MementoChem
+&GATEWAY
+  Coord
+  2
+
+  N 0 0 0
+  N 0 0 1.098
+
+  Basis = cc-pVDZ
+  NOCD   * RI Disabled
+
+&SEWARD   * Integral Computation
+&SCF

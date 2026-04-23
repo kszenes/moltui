@@ -413,7 +413,13 @@ async def test_brackets_and_space_control_multixyz_frames_in_geometry_mode() -> 
     )
 
     async with app.run_test() as pilot:
+        await pilot.pause()
         app._stop_playback()
+        assert app.trajectory_data is not None
+        app.trajectory_data.frame_index = 0
+        app._apply_active_animation_geometry()
+        await pilot.pause()
+
         panel = app.query_one(GeometryPanel)
         bond_table = panel.query_one("#bonds-table", DataTable)
         initial_length = bond_table.get_cell_at(Coordinate(0, 2))
@@ -478,7 +484,13 @@ async def test_multixyz_recomputes_bonds_and_breaks_on_dissociation() -> None:
     )
 
     async with app.run_test() as pilot:
+        await pilot.pause()
         app._stop_playback()
+        assert app.trajectory_data is not None
+        app.trajectory_data.frame_index = 0
+        app._apply_active_animation_geometry()
+        await pilot.pause()
+
         panel = app.query_one(GeometryPanel)
         bond_table = panel.query_one("#bonds-table", DataTable)
         assert bond_table.row_count == 1
@@ -486,7 +498,6 @@ async def test_multixyz_recomputes_bonds_and_breaks_on_dissociation() -> None:
         await pilot.press("]")
         await pilot.pause()
 
-        assert app.trajectory_data is not None
         assert app.trajectory_data.frame_index == 1
         assert len(app.molecule.bonds) == 0
         assert bond_table.row_count == 0

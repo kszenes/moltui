@@ -1,0 +1,6 @@
+electron_num_isSet 1 
+electron_num 14 
+electron_up_num_isSet 1 
+electron_up_num 7 
+electron_dn_num_isSet 1 
+electron_dn_num 7 

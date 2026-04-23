@@ -103,9 +103,77 @@ def test_molcas_n2():
     np.testing.assert_allclose(
         orb.mo_energies[:5], [-15.687, -15.683, -1.471, -0.7742, -0.6262], atol=1e-4
     )
-    # First 5 MOs doubly occupied, MO 5 virtual
-    np.testing.assert_allclose(orb.mo_occupations[:5], [2.0, 2.0, 2.0, 2.0, 2.0])
-    assert orb.mo_occupations[5] == 0.0
+    # All MO energies (limited precision in Molcas molden format)
+    np.testing.assert_allclose(
+        orb.mo_energies,
+        [
+            -15.687,
+            -15.683,
+            -1.471,
+            -0.7742,
+            -0.6262,
+            0.5945,
+            0.8202,
+            0.9922,
+            1.1439,
+            1.6429,
+            1.7575,
+            2.2988,
+            2.8741,
+            3.2831,
+            -0.608,
+            0.1755,
+            0.8723,
+            1.051,
+            1.8817,
+            2.9961,
+            1.7575,
+            2.2988,
+            -0.608,
+            0.1755,
+            0.8723,
+            1.051,
+            1.8817,
+            2.9961,
+        ],
+        atol=1e-4,
+    )
+    # All occupations
+    np.testing.assert_allclose(
+        orb.mo_occupations,
+        [
+            2.0,
+            2.0,
+            2.0,
+            2.0,
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            2.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ],
+    )
+    # All symmetry labels
+    assert orb.mo_symmetries == (["A1"] * 14 + ["B1"] * 6 + ["A2"] * 2 + ["B2"] * 6)
 
 
 # ---------------------------------------------------------------------------
@@ -163,21 +231,78 @@ def test_orca_n2_molden():
     assert orb.homo_idx == 6
     np.testing.assert_allclose(orb.mo_energies[orb.homo_idx], -1.01651068178511, atol=1e-8)
 
-    # First 5 MO energies (high precision in Orca molden format)
+    # All MO energies (high precision in Orca molden format)
     np.testing.assert_allclose(
-        orb.mo_energies[:5],
+        orb.mo_energies,
         [
             -15.6449058610371,
             -15.64215461089,
             -1.03995052337999,
             -0.758523735526424,
             -0.585576851041608,
+            -0.585576851041606,
+            -1.01651068178511,
+            0.312622537259467,
+            0.312622537259465,
+            1.27378440477447,
+            0.707365890027976,
+            0.827755818271803,
+            0.878723391374256,
+            0.878723391374252,
+            0.931721040080917,
+            0.931721040080924,
+            1.00500408396294,
+            1.55693939695611,
+            1.76897117072112,
+            1.76897117072112,
+            1.89447591291943,
+            1.89447591291943,
+            2.30886256692502,
+            2.30886256692503,
+            2.88667706857542,
+            2.99803308211133,
+            2.99803308211133,
+            3.17167282790304,
         ],
         atol=1e-8,
     )
-    # First 4 doubly occupied, next 3 fractionally occupied (CASSCF/DFT smearing)
-    np.testing.assert_allclose(orb.mo_occupations[:4], [2.0, 2.0, 2.0, 2.0])
-    np.testing.assert_allclose(orb.mo_occupations[4:7], [1.941708, 1.941708, 1.982237], atol=1e-6)
+    # All occupations
+    np.testing.assert_allclose(
+        orb.mo_occupations,
+        [
+            2.0,
+            2.0,
+            2.0,
+            2.0,
+            1.941708,
+            1.941708,
+            1.982237,
+            0.058205,
+            0.058205,
+            0.017936,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ],
+        atol=1e-6,
+    )
+    # Orca does not write symmetry labels — all default to "A"
+    assert orb.mo_symmetries == ["A"] * 28
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +421,7 @@ def test_trexio_n2_geometry():
 
     mol_txt = load_molecule_from_trexio(_require(TREXIO_DATA / "n2"))
     mol_h5 = load_molecule_from_trexio(_require(TREXIO_DATA / "n2.h5"))
-    mol_molden = load_molden_data(_require(TREXIO_DATA / "mf.molden")).molecule
+    mol_molden = load_molden_data(_require(TREXIO_DATA / "n2.molden")).molecule
 
     for mol in (mol_txt, mol_h5, mol_molden):
         assert len(mol.atoms) == 2
@@ -318,7 +443,7 @@ def test_trexio_mo_data():
 
     orb_txt = load_trexio_orbital_data(_require(TREXIO_DATA / "n2"))
     orb_h5 = load_trexio_orbital_data(_require(TREXIO_DATA / "n2.h5"))
-    orb_molden = load_molden_data(_require(TREXIO_DATA / "mf.molden"))
+    orb_molden = load_molden_data(_require(TREXIO_DATA / "n2.molden"))
 
     assert orb_txt is not None
     assert orb_h5 is not None
@@ -337,6 +462,10 @@ def test_trexio_mo_data():
     np.testing.assert_allclose(orb_molden.mo_energies[orb_molden.homo_idx], -0.613128476, atol=1e-8)
     np.testing.assert_allclose(orb_molden.mo_occupations[:7], [2.0] * 7)
     assert orb_molden.mo_occupations[7] == pytest.approx(0.0)
+
+    # Symmetry labels agree across all three backends (all 110 MOs)
+    for orb in (orb_txt, orb_h5):
+        assert orb.mo_symmetries == orb_molden.mo_symmetries
 
     # Density matrices agree across all three backends
     def _density(orb):

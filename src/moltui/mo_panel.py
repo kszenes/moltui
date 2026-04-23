@@ -31,6 +31,8 @@ class MOPanel(SelectionTablePanel):
         super().__init__(table_id="mo-table")
         self._mo_data: list[tuple[int, str, float, float, str]] = []
         self._current_mo: int = 0
+        self._has_energies: bool = True
+        self._has_occupations: bool = True
 
     def set_mo_data(
         self,
@@ -39,8 +41,12 @@ class MOPanel(SelectionTablePanel):
         symmetries: list[str],
         spins: list[str],
         current_mo: int,
+        has_energies: bool = True,
+        has_occupations: bool = True,
     ) -> None:
         self._current_mo = current_mo
+        self._has_energies = has_energies
+        self._has_occupations = has_occupations
         self._mo_data = []
         for i in range(len(energies)):
             sym = symmetries[i] if i < len(symmetries) else ""
@@ -67,7 +73,10 @@ class MOPanel(SelectionTablePanel):
             columns = ["MO"]
             if show_sym:
                 columns.append("Irrep")
-            columns.extend(["Energy", "Occ"])
+            if self._has_energies:
+                columns.append("Energy")
+            if self._has_occupations:
+                columns.append("Occ")
             table.add_columns(*columns)
 
             spin_symbol = {"Alpha": "\u03b1", "Beta": "\u03b2"}
@@ -86,8 +95,10 @@ class MOPanel(SelectionTablePanel):
                 row = [mo_label]
                 if show_sym:
                     row.append(sym)
-                row.append(f"{energy:>10.5f}")
-                row.append(f"{occ:.5f}")
+                if self._has_energies:
+                    row.append(f"{energy:>10.5f}")
+                if self._has_occupations:
+                    row.append(f"{occ:.5f}")
                 table.add_row(*row, key=str(mo_idx))
                 if mo_idx == self._current_mo:
                     current_row = idx

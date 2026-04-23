@@ -1,6 +1,6 @@
 # MolTUI
 
-**MolTUI** is a terminal molecular viewer for the **XYZ**, **Zmat**, **Molden**, **Gaussian Cube**, **Orca GBW** and **HESS** file format designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
+**MolTUI** is a terminal **molecular** and **crystallographic** viewer designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
 Ideal for **remote SSH sessions** and **lightweight analyses**.
 
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
@@ -29,7 +29,7 @@ The modes consist of **molecular orbitals**, **normal modes** and **geometry** a
 ### Visualize Orbitals
 
 - The **rendering** of orbitals can be toggled via `o`.
-- **Molden** and **GBW** files can contain **multiple molecular orbitals**. **Cycle** through MOs with `n`ext and `p`rev.
+- **Molden** and **.gbw** files can contain **multiple molecular orbitals**. **Cycle** through MOs with `n`ext and `p`rev.
 
 <img width="1512" height="926" alt="image" src="https://github.com/user-attachments/assets/4c1743ba-aff0-4683-92a7-7ebfaa361258" />
 
@@ -41,6 +41,15 @@ The modes consist of **molecular orbitals**, **normal modes** and **geometry** a
 - **Atom indices** can be toggled via `#`.
 
 <img width="1510" height="923" alt="image" src="https://github.com/user-attachments/assets/8a6dab9a-d377-4d16-bfe1-89c83d0763a1" />
+
+#### Periodic Systems
+
+- **Periodic systems** can be provided using the **extended XYZ** and **CIF** file formats
+- The **toggling** of the **periodicity** is achieved via the `b` key
+- The **rendering of the box** can be toggled in the visual pane
+
+<img width="1508" height="899" alt="image" src="https://github.com/user-attachments/assets/5604ec3a-942c-427e-bef6-fc100be8f96c" />
+
 
 ### Animations
 
@@ -87,11 +96,30 @@ Toggle between **light** and **dark** mode with `i`.
 
 ## Supported formats
 
-- **Structures**: **XYZ**, Gaussian **ZMAT**.
-- **Orbitals**: **Molden**, Gaussian **Cube**, Orca **GBW**¹.
-- **Normal Modes**: **Molden**, Orca **HESS**.
+| Format                | Geometry | Trajectory | Orbitals | Normal Modes |
+|-----------------------|:--------:|:----------:|:--------:|:------------:|
+| **XYZ** / **extXYZ**  | ✓        | ✓          | —        | —            |
+| **CIF**               | ✓        | —          | —        | —            |
+| Gaussian **ZMAT**     | ✓        | —          | —        | —            |
+| Gaussian **Cube**     | ✓        | —          | ✓        | —            |
+| **Molden**            | ✓        | —          | ✓        | ✓            |
+| Gaussian **.fchk**    | ✓        | ✓          | ✓        | ✓            |
+| Orca **.GBW**¹        | ✓        | —          | ✓        | —            |
+| Orca **.hess**        | ✓        | —          | —        | ✓            |
+| **TrexIO**²           | ✓        | —          | ✓        | —            |
+
+✓ supported; — not part of the file format
 
 ¹ Requires `orca_2mkl` in `PATH`
+
+² Requires installing `moltui[trexio]`
+
+### Quantum Chemistry Inputs
+
+The molecular structures can be viewed from the inputs of the following programs
+
+- **Orca**, **Molcas**, **Q-Chem**, **Gaussian**, **NWChem**, **Turbomole**, **Molpro**, **MRCC**, **CFOUR**, **Psi4**, **GAMESS** **Jaguar**
+
 
 ## Keybindings
 
@@ -112,7 +140,8 @@ Toggle between **light** and **dark** mode with `i`.
 |-----|--------|
 | `o` | Toggle **orbital isosurfaces** |
 | `i` | Toggle **dark/light** theme |
-| `b` | Toggle **bonds** |
+| `B` | Toggle **bonds** |
+| `b` | Toggle **periodicity** |
 | `e` | **Export** PNG |
 | `v` | Toggle **style** (CPK, Licorice, VDW) |
 | `#` | Toggle **atom numbers** |
@@ -155,7 +184,12 @@ Toggle between **light** and **dark** mode with `i`.
 |-----|--------|
 | `q` | **Quit** |
 
-## Limitations
+## Known Issues
 
+- Only up to `g`-shells are implemented as this is the highest orbital shell officially supported by the Molden format.
 - The content is rendered using braille Unicode characters and, therefore, the quality of rendering can depend on the font and terminal emulator. All figures in the repository have been generated using the JetBrains Mono Nerd Font in the Kitty terminal. 
 - The Orca GBW file format is typically incompatible between versions. Therefore, the `orca_2mkl` should ideally be of the same version as the Orca version used to produce the GBW file. Newer version of Orca can try to recover earlier GBW files using the [rescue](https://orca-manual.mpi-muelheim.mpg.de/contents/quickstartguide/troubleshooting.html#using-old-orca-inputs) feature. 
+
+## Acknowledgements
+
+Parser tests are cross-validated with data and reference parsers from [IODATA](https://github.com/theochem/iodata), [cclib](https://github.com/cclib/cclib) / [cclib-data](https://github.com/cclib/cclib-data), [PySCF](https://github.com/pyscf/pyscf), and [ASE](https://gitlab.com/ase/ase).

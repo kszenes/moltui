@@ -1,0 +1,11 @@
+%mem=2GB
+%nprocshared=4
+%chk=n2.chk
+# HF/cc-pVDZ Opt
+
+Nitrogen cc-pVDZ geometry optimization
+
+0 1
+N    0.000000   0.000000   0.000000
+N    0.000000   0.000000   1.098000
+

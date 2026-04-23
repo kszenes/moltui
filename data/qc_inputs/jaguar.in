@@ -1,0 +1,10 @@
+&gen
+basis=cc-pVDZ
+dftname=B3LYP
+molchg=0
+multip=1
+&
+&zmat
+N1   0.000000   0.000000   0.000000
+N2   0.000000   0.000000   1.098000
+&

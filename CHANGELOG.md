@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.5.2](https://github.com/kszenes/moltui/compare/v0.5.1...v0.5.2) (2026-05-03)
+
+
+### Bug Fixes
+
+* bugfixes in fchk parsing ([#20](https://github.com/kszenes/moltui/issues/20)) ([2d6becd](https://github.com/kszenes/moltui/commit/2d6becd1fecae204edb1e221b7d34e95ff236a34))
+
+## [v0.5.1] 2025-05-02
+
+- Add geometry-only parsing for QC input files from Orca, Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, and Jaguar (as suggested by [scohenjanes5](https://github.com/scohenjanes5) in [#9](https://github.com/kszenes/moltui/issues/9) and implemented for Gaussian in [#15](https://github.com/kszenes/moltui/pull/15))
+
+## [v0.5.0] - 2026-05-01
+
+- Add support for periodic lattices via extended XYZ and CIF formats
+
+## [v0.4.2] - 2026-04-28
+
+- Fix Windows spurious line break characters (contributed by [scohenjanes5](https://github.com/scohenjanes5) in [#14](https://github.com/kszenes/moltui/pull/14))
+
+## [v0.4.1] - 2026-04-26
+
+- Adds Gaussian `.fchk` support for geometries, MOs and normal modes
+
+## [v0.4.0] - 2026-04-26
+
+- Add support for TREXIO files (geometry and MOs) (closed [#10](https://github.com/kszenes/moltui/issues/10))
+- Improve AO construction caching for faster rendering
+- Add integration tests for parsing
+
+## [v0.3.7] - 2026-04-23
+
+- Add animation speed slider (contributed by [@Dpgibney](https://github.com/Dpgibney) in [#11](https://github.com/kszenes/moltui/pull/11))
+
+## [v0.3.6] - 2026-04-21
+
+- Fix Molcas Molden format issue (contributed by [@fra-mazz](https://github.com/fra-mazza) in [#8](https://github.com/kszenes/moltui/pull/8))
+
 ## [v0.3.5] - 2026-04-21
 
 - Revert to fast rendering for export

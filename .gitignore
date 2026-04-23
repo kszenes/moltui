@@ -14,3 +14,12 @@ wheels/
 
 examples/
 archive/
+
+wt/
+
+# cclib regression data
+data/regression/
+data/extracted_inputs/
+
+# Coverage
+.coverage

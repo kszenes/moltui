@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from moltui.gto import eval_gto, parse_molden
-from moltui.molden import load_molden_data
+from moltui.molden import evaluate_mo, load_molden_data, parse_molden_atoms
 
 
 def _write_molden(tmp_path: Path, contents: str) -> Path:
@@ -44,6 +44,55 @@ Occup= 2.0
     ao = eval_gto(basis.shells, np.array([[0.1, 0.2, 0.3]]), basis.spherical)
 
     assert ao.shape == (1, 6)
+
+
+def test_parse_molden_mos_without_symmetry_blocks(tmp_path: Path) -> None:
+    """Some Molden writers start each orbital with Ene= and omit Sym=."""
+    path = _write_molden(
+        tmp_path,
+        """[Molden Format]
+[Atoms] AU
+H 1 1 0.0 0.0 0.0
+[GTO]
+1 0
+s 1 1.0
+1.0 1.0
+
+[MO]
+Ene= -0.5
+Spin= Alpha
+Occup= 2.0
+1 1.0
+Ene= 0.2
+Spin= Alpha
+Occup= 0.0
+1 0.5
+""",
+    )
+
+    basis = parse_molden(path)
+
+    assert basis.mo_coefficients.shape == (1, 2)
+    np.testing.assert_allclose(basis.mo_energies, [-0.5, 0.2])
+    assert basis.mo_symmetries == ["A", "A"]
+
+
+def test_parse_molden_accepts_h_shells(tmp_path: Path) -> None:
+    path = _write_molden(
+        tmp_path,
+        """[Molden Format]
+[Atoms] AU
+H 1 1 0.0 0.0 0.0
+[GTO]
+1 0
+h 1 1.0
+1.0 1.0
+""",
+    )
+
+    basis = parse_molden(path)
+
+    assert basis.shells[0].l == 5
 
 
 def test_parse_molden_spherical_flags(tmp_path: Path) -> None:
@@ -232,3 +281,128 @@ vibration 1
     assert data.normal_modes.shape[0] == 1
     assert data.mode_frequencies is not None
     assert np.isclose(data.mode_frequencies[-1], 0.0)
+
+
+def _write_two_mo_molden(tmp_path: Path) -> Path:
+    """Minimal molden with two s-shells and two MOs for cache testing."""
+    return _write_molden(
+        tmp_path,
+        """[Molden Format]
+[Atoms] AU
+H 1 1 0.0 0.0 0.0
+H 2 1 0.0 0.0 1.4
+[GTO]
+1 0
+s 1 1.0
+1.24 1.0
+
+2 0
+s 1 1.0
+1.24 1.0
+
+[MO]
+Sym= A1
+Ene= -0.5
+Spin= Alpha
+Occup= 2.0
+1 0.7071
+2 0.7071
+Sym= A1
+Ene= 0.3
+Spin= Alpha
+Occup= 0.0
+1  0.7071
+2 -0.7071
+""",
+    )
+
+
+def test_ao_cache_populated_after_first_evaluate_mo(tmp_path: Path) -> None:
+    """AO matrix cache should be None before the first call and float32 after."""
+    data = load_molden_data(_write_two_mo_molden(tmp_path))
+
+    assert data._ao_cache_values is None
+    assert data._gto_prepared_cache is None
+
+    evaluate_mo(data, 0, grid_shape=(10, 10, 10))
+
+    assert data._ao_cache_values is not None
+    assert data._ao_cache_values.dtype == np.float32
+    assert data._ao_cache_values.shape == (1000, data._basis.mo_coefficients.shape[0])
+    assert data._gto_prepared_cache is not None
+
+
+def test_ao_cache_hit_produces_same_mo_values(tmp_path: Path) -> None:
+    """MO values from a cache hit must match a fresh evaluation for all MOs."""
+    data = load_molden_data(_write_two_mo_molden(tmp_path))
+    shape = (12, 12, 12)
+
+    # First call populates cache; compute MO 0 without cache for reference.
+    ref0 = evaluate_mo(data, 0, grid_shape=shape)
+    ref1 = evaluate_mo(data, 1, grid_shape=shape)  # cache hit
+
+    # Reset cache and recompute both MOs independently.
+    data._ao_cache_values = None
+    data._ao_cache_key = None
+    fresh0 = evaluate_mo(data, 0, grid_shape=shape)
+    data._ao_cache_values = None
+    data._ao_cache_key = None
+    fresh1 = evaluate_mo(data, 1, grid_shape=shape)
+
+    np.testing.assert_allclose(ref0.data, fresh0.data, rtol=1e-5, atol=1e-7)
+    np.testing.assert_allclose(ref1.data, fresh1.data, rtol=1e-5, atol=1e-7)
+
+
+def test_ao_cache_invalidated_on_grid_change(tmp_path: Path) -> None:
+    """Changing grid_shape must trigger a fresh AO matrix computation."""
+    data = load_molden_data(_write_two_mo_molden(tmp_path))
+
+    evaluate_mo(data, 0, grid_shape=(8, 8, 8))
+    first_cache = data._ao_cache_values
+    assert data._ao_cache_key == ((8, 8, 8), 5.0)
+
+    evaluate_mo(data, 0, grid_shape=(10, 10, 10))
+    assert data._ao_cache_values is not first_cache
+    assert data._ao_cache_key == ((10, 10, 10), 5.0)
+
+
+def test_parse_molden_openmolcas_style_gto_and_atom_labels(tmp_path: Path) -> None:
+    """OpenMolcas uses one integer per GTO center (no trailing 0) and atom names like C1."""
+    path = _write_molden(
+        tmp_path,
+        """[Molden Format]
+[Atoms] AU
+C1 6 12.0 0.0 0.0 0.0
+H2 1 1.0 0.0 0.0 1.0
+[GTO]
+1
+s 1
+1.0 1.0
+2
+s 1
+1.0 1.0
+
+[MO]
+Sym= A1
+Ene= -0.5
+Spin= Alpha
+Occup= 2.0
+1 0.7
+2 0.7
+""",
+    )
+
+    basis = parse_molden(path)
+    assert basis.atom_symbols == ["C1", "H2"]
+    assert len(basis.shells) == 2
+    assert np.allclose(basis.shells[0].center, [0.0, 0.0, 0.0])
+    assert np.allclose(basis.shells[1].center, [0.0, 0.0, 1.0])
+    assert basis.mo_coefficients.shape == (2, 1)
+
+    data = load_molden_data(path)
+    assert data.molecule.atoms[0].element.symbol == "C"
+    assert data.molecule.atoms[1].element.symbol == "H"
+
+    mol = parse_molden_atoms(path)
+    assert mol.atoms[0].element.symbol == "C"
+    assert mol.atoms[1].element.symbol == "H"

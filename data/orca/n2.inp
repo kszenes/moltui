@@ -1,0 +1,11 @@
+! cc-pvdz usesym pmodel
+
+%casscf
+  nel 6
+  norb 6
+end
+
+* xyz 0 1 
+N 0 0 0
+N 0 0 1.098
+*

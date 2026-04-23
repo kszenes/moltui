@@ -43,8 +43,9 @@ async def test_panel_next_prev_actions_select_normal_mode() -> None:
     molecule = Molecule(atoms=atoms, bonds=[])
     molecule.detect_bonds()
 
-    # 3 atoms, non-linear -> first vibrational mode index starts at 6.
-    n_modes = 9
+    # NormalModeData passed to the app is expected to be already pre-filtered
+    # of rigid-body modes (filtering happens at file-load).
+    n_modes = 3
     mode_vectors = np.zeros((n_modes, len(atoms), 3), dtype=np.float64)
     for i in range(n_modes):
         mode_vectors[i, :, 0] = 0.01 * (i + 1)
@@ -52,7 +53,7 @@ async def test_panel_next_prev_actions_select_normal_mode() -> None:
     normal_mode_data = NormalModeData(
         equilibrium_coords=np.array([a.position.copy() for a in atoms]),
         mode_vectors=mode_vectors,
-        frequencies=np.arange(float(n_modes)),
+        frequencies=np.array([2041.3, 4493.7, 4796.3]),
     )
 
     app = MoltuiApp(
@@ -66,16 +67,16 @@ async def test_panel_next_prev_actions_select_normal_mode() -> None:
         await pilot.pause()
         assert app.query_one(NormalModePanel).has_class("visible")
         assert app.normal_mode_data is not None
-        assert app.normal_mode_data.mode_index == 6
+        assert app.normal_mode_data.mode_index == 0
         assert app._is_playing
 
         app.action_panel_next()
         await pilot.pause()
-        assert app.normal_mode_data.mode_index == 7
+        assert app.normal_mode_data.mode_index == 1
 
         app.action_panel_prev()
         await pilot.pause()
-        assert app.normal_mode_data.mode_index == 6
+        assert app.normal_mode_data.mode_index == 0
 
 
 @pytest.mark.asyncio
@@ -103,19 +104,21 @@ async def test_m_and_capital_m_cycle_view_modes() -> None:
         frequencies=np.array([2000.0, 4000.0, 4700.0]),
     )
 
-    molden_data = SimpleNamespace(
+    orbital_data = SimpleNamespace(
         mo_energies=np.array([-0.5]),
         mo_occupations=np.array([2.0]),
         mo_symmetries=["A1"],
         mo_spins=["Alpha"],
         n_mos=1,
         homo_idx=0,
+        has_mo_energies=True,
+        has_mo_occupations=True,
     )
 
     app = MoltuiApp(
         molecule=molecule,
         filepath="sample.molden",
-        molden_data=molden_data,
+        orbital_data=orbital_data,
         current_mo=0,
         normal_mode_data=normal_mode_data,
     )
@@ -222,19 +225,21 @@ async def test_mo_and_normal_mode_views_are_mutually_exclusive() -> None:
         frequencies=np.arange(9.0),
     )
 
-    molden_data = SimpleNamespace(
+    orbital_data = SimpleNamespace(
         mo_energies=np.array([-0.5]),
         mo_occupations=np.array([2.0]),
         mo_symmetries=["A1"],
         mo_spins=["Alpha"],
         n_mos=1,
         homo_idx=0,
+        has_mo_energies=True,
+        has_mo_occupations=True,
     )
 
     app = MoltuiApp(
         molecule=molecule,
         filepath="sample.molden",
-        molden_data=molden_data,
+        orbital_data=orbital_data,
         current_mo=0,
         normal_mode_data=normal_mode_data,
     )
@@ -273,19 +278,21 @@ async def test_header_shows_only_active_view_info() -> None:
         mode_vectors=np.zeros((3, len(atoms), 3), dtype=np.float64),
         frequencies=np.array([2000.0, 4000.0, 4700.0]),
     )
-    molden_data = SimpleNamespace(
+    orbital_data = SimpleNamespace(
         mo_energies=np.array([-0.5]),
         mo_occupations=np.array([2.0]),
         mo_symmetries=["A1"],
         mo_spins=["Alpha"],
         n_mos=1,
         homo_idx=0,
+        has_mo_energies=True,
+        has_mo_occupations=True,
     )
 
     app = MoltuiApp(
         molecule=molecule,
         filepath="sample.molden",
-        molden_data=molden_data,
+        orbital_data=orbital_data,
         current_mo=0,
         normal_mode_data=normal_mode_data,
     )
@@ -314,13 +321,15 @@ async def test_mode_specific_actions_disabled_outside_active_mode() -> None:
     ]
     molecule = Molecule(atoms=atoms, bonds=[])
     molecule.detect_bonds()
-    molden_data = SimpleNamespace(
+    orbital_data = SimpleNamespace(
         mo_energies=np.array([-0.5]),
         mo_occupations=np.array([2.0]),
         mo_symmetries=["A1"],
         mo_spins=["Alpha"],
         n_mos=1,
         homo_idx=0,
+        has_mo_energies=True,
+        has_mo_occupations=True,
     )
     normal_mode_data = NormalModeData(
         equilibrium_coords=np.array([a.position.copy() for a in atoms]),
@@ -330,7 +339,7 @@ async def test_mode_specific_actions_disabled_outside_active_mode() -> None:
     app = MoltuiApp(
         molecule=molecule,
         filepath="sample.molden",
-        molden_data=molden_data,
+        orbital_data=orbital_data,
         current_mo=0,
         normal_mode_data=normal_mode_data,
     )
@@ -413,9 +422,16 @@ async def test_brackets_and_space_control_multixyz_frames_in_geometry_mode() -> 
     )
 
     async with app.run_test() as pilot:
+        await pilot.pause()
+        app._stop_playback()
+        assert app.trajectory_data is not None
+        app.trajectory_data.frame_index = 0
+        app._apply_active_animation_geometry()
+        await pilot.pause()
+
         panel = app.query_one(GeometryPanel)
         bond_table = panel.query_one("#bonds-table", DataTable)
-        initial_length = bond_table.get_cell_at(Coordinate(0, 2))
+        initial_length = bond_table.get_cell_at(Coordinate(0, 2)).strip()
 
         assert app.check_action("next_animation_step", tuple()) is True
         assert app.check_action("prev_animation_step", tuple()) is True
@@ -425,7 +441,7 @@ async def test_brackets_and_space_control_multixyz_frames_in_geometry_mode() -> 
         await pilot.pause()
         assert app.trajectory_data is not None
         assert app.trajectory_data.frame_index == 1
-        updated_length = bond_table.get_cell_at(Coordinate(0, 2))
+        updated_length = bond_table.get_cell_at(Coordinate(0, 2)).strip()
         assert updated_length != initial_length
         assert updated_length == "0.8000"
 
@@ -477,6 +493,13 @@ async def test_multixyz_recomputes_bonds_and_breaks_on_dissociation() -> None:
     )
 
     async with app.run_test() as pilot:
+        await pilot.pause()
+        app._stop_playback()
+        assert app.trajectory_data is not None
+        app.trajectory_data.frame_index = 0
+        app._apply_active_animation_geometry()
+        await pilot.pause()
+
         panel = app.query_one(GeometryPanel)
         bond_table = panel.query_one("#bonds-table", DataTable)
         assert bond_table.row_count == 1
@@ -484,7 +507,6 @@ async def test_multixyz_recomputes_bonds_and_breaks_on_dissociation() -> None:
         await pilot.press("]")
         await pilot.pause()
 
-        assert app.trajectory_data is not None
         assert app.trajectory_data.frame_index == 1
         assert len(app.molecule.bonds) == 0
         assert bond_table.row_count == 0

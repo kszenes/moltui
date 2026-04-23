@@ -1634,8 +1634,8 @@ def run():
     parser.add_argument(
         "file",
         help=(
-            "molecular structure file (XYZ, Cube, Molden, Gaussian .fchk, "
-            "ORCA .hess, ORCA .gbw, "
+            "molecular structure file (XYZ, Cube, CIF, Molden, Gaussian .fchk, "
+            "ORCA .hess, ORCA .gbw, QC inputs, "
             'or TREXIO .h5/.hdf5/.trexio; optional: pip install "moltui[trexio]")'
         ),
     )

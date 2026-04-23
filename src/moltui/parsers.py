@@ -1072,15 +1072,16 @@ def load_molecule(filepath: str | Path) -> Molecule:
         qc_kind = detect_qc_input_by_extension(filepath)
         if qc_kind is not None:
             return parse_qc_input(filepath, qc_kind)
+
+        from .trexio_support import is_trexio_path, load_molecule_from_trexio
+
+        if is_trexio_path(filepath):
+            return load_molecule_from_trexio(filepath)
         if suffix in QC_INPUT_AMBIGUOUS_SUFFIXES or suffix == "":
             sniffed = sniff_qc_input(filepath)
             if sniffed is not None:
                 return parse_qc_input(filepath, sniffed)
             raise ValueError(f"Could not identify QC input format from contents of {filepath!s}")
-        from .trexio_support import is_trexio_path, load_molecule_from_trexio
-
-        if is_trexio_path(filepath):
-            return load_molecule_from_trexio(filepath)
         raise ValueError(
             f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, "
             ".hess, .cif, .gbw, a QC input (Orca, Q-Chem, Gaussian, NWChem, "

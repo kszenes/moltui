@@ -32,21 +32,19 @@ Repository = "https://github.com/kszenes/moltui"
 Issues = "https://github.com/kszenes/moltui/issues"
 
 [project.optional-dependencies]
-molden = ["psutil"]
 test = [
     "pytest>=7.0",
     "pytest-asyncio>=1.3.0",
 ]
 test-pyscf = [
-    "pytest>=7.0",
+    "moltui[test]",
     "pyscf>=2.0",
-    "pytest-asyncio>=1.3.0",
 ]
 trexio = ["trexio>=2.0"]
+all = ["moltui[trexio]"]
 test-trexio = [
-    "pytest>=7.0",
-    "pytest-asyncio>=1.3.0",
-    "trexio>=2.0",
+    "moltui[test]",
+    "moltui[trexio]",
 ]
 
 [build-system]

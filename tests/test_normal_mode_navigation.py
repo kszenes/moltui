@@ -413,6 +413,7 @@ async def test_brackets_and_space_control_multixyz_frames_in_geometry_mode() -> 
     )
 
     async with app.run_test() as pilot:
+        app._stop_playback()
         panel = app.query_one(GeometryPanel)
         bond_table = panel.query_one("#bonds-table", DataTable)
         initial_length = bond_table.get_cell_at(Coordinate(0, 2))
@@ -477,6 +478,7 @@ async def test_multixyz_recomputes_bonds_and_breaks_on_dissociation() -> None:
     )
 
     async with app.run_test() as pilot:
+        app._stop_playback()
         panel = app.query_one(GeometryPanel)
         bond_table = panel.query_one("#bonds-table", DataTable)
         assert bond_table.row_count == 1

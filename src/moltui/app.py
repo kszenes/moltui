@@ -1305,6 +1305,18 @@ def _detect_filetype(filepath: str) -> str:
         return "zmat"
     if suffix == ".molden" or name_lower.endswith(".molden.input"):
         return "molden"
+    if suffix in (".h5", ".hdf5") and path.is_file():
+        return "trexio"
+    if suffix == ".trexio" and (path.is_file() or path.is_dir()):
+        return "trexio"
+    if path.is_dir():
+        from .trexio_support import is_readable_trexio_text_directory
+
+        if is_readable_trexio_text_directory(path):
+            return "trexio"
+        raise ValueError(
+            f"{path.resolve()!s} is a directory and is not a readable TREXIO text archive. "
+        )
     with open(filepath) as f:
         for line in f:
             stripped = line.strip()
@@ -1371,12 +1383,22 @@ def run():
         description="Terminal-based 3D molecular viewer",
     )
     parser.add_argument(
-        "file", help="molecular structure file (XYZ, Cube, Molden, ORCA .hess, or ORCA .gbw)"
+        "file",
+        help=(
+            "molecular structure file (XYZ, Cube, Molden, ORCA .hess, ORCA .gbw, "
+            'or TREXIO .h5/.hdf5/.trexio; optional: pip install "moltui[trexio]")'
+        ),
     )
     parsed = parser.parse_args()
 
     filepath = parsed.file
-    filetype = _detect_filetype(filepath)
+    try:
+        filetype = _detect_filetype(filepath)
+    except ValueError as exc:
+        import sys
+
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
     isosurfaces: list[IsosurfaceMesh] = []
     molden_data = None
     current_mo = 0

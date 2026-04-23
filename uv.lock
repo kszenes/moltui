@@ -205,6 +205,14 @@ test-pyscf = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
+test-trexio = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "trexio" },
+]
+trexio = [
+    { name = "trexio" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -213,12 +221,16 @@ requires-dist = [
     { name = "pyscf", marker = "extra == 'test-pyscf'", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0" },
     { name = "pytest", marker = "extra == 'test-pyscf'", specifier = ">=7.0" },
+    { name = "pytest", marker = "extra == 'test-trexio'", specifier = ">=7.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.3.0" },
     { name = "pytest-asyncio", marker = "extra == 'test-pyscf'", specifier = ">=1.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test-trexio'", specifier = ">=1.3.0" },
     { name = "scikit-image", specifier = ">=0.22" },
     { name = "textual", specifier = ">=3.0" },
+    { name = "trexio", marker = "extra == 'test-trexio'", specifier = ">=2.0" },
+    { name = "trexio", marker = "extra == 'trexio'", specifier = ">=2.0" },
 ]
-provides-extras = ["molden", "test", "test-pyscf"]
+provides-extras = ["molden", "test", "test-pyscf", "test-trexio", "trexio"]
 
 [[package]]
 name = "networkx"
@@ -990,6 +1002,42 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/12/64/da524626d3b9cc40c168a13da8335fe1c51be12c0a63685cc6db7308daae/tomli-2.4.1-cp314-cp314t-win_amd64.whl", hash = "sha256:2c1c351919aca02858f740c6d33adea0c5deea37f9ecca1cc1ef9e884a619d26", size = 121196, upload-time = "2026-03-25T20:22:01.169Z" },
     { url = "https://files.pythonhosted.org/packages/5a/cd/e80b62269fc78fc36c9af5a6b89c835baa8af28ff5ad28c7028d60860320/tomli-2.4.1-cp314-cp314t-win_arm64.whl", hash = "sha256:eab21f45c7f66c13f2a9e0e1535309cee140182a9cdae1e041d02e47291e8396", size = 100393, upload-time = "2026-03-25T20:22:02.137Z" },
     { url = "https://files.pythonhosted.org/packages/7b/61/cceae43728b7de99d9b847560c262873a1f6c98202171fd5ed62640b494b/tomli-2.4.1-py3-none-any.whl", hash = "sha256:0d85819802132122da43cb86656f8d1f8c6587d54ae7dcaf30e90533028b49fe", size = 14583, upload-time = "2026-03-25T20:22:03.012Z" },
+]
+
+[[package]]
+name = "trexio"
+version = "2.6.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/65/e1/9deb3a2f66d322e0ff3c850463798c5c9197d37a2914e612701b40d7b030/trexio-2.6.1.tar.gz", hash = "sha256:2e2e1d37fb1c2f371cfa32d07434d1d703e7500eaf7590b01fe9ba5169829447", size = 356257, upload-time = "2026-02-04T19:40:44.166Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/01/309dcd0f20859ad540a5a121a1b2bbb9f89b2f0bffa9a181b4132dd9880c/trexio-2.6.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:d18afd7bfb85201b60c6391b6fcafea70839904e37dd524ff1f6b40e78a088aa", size = 2467799, upload-time = "2026-02-04T19:39:45.071Z" },
+    { url = "https://files.pythonhosted.org/packages/d3/a3/ea9f233ccdac13045db2360207a3fd39c46f4d79b27c7f43dc6bb8d216f3/trexio-2.6.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:ba2d3f690a55da65b2ba00ef97df220f10bc677ca4d4fc9922ded8d0c3e0e12b", size = 2140394, upload-time = "2026-02-04T19:39:47.069Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/fc/8bb81df0a8099dc10e34433e0f01ca62dae1c1fc2108360bf46fbaa7c4b7/trexio-2.6.1-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:5152e3c658a4f8eb680974d210d3758a27529ea51b051b49600da619ca54a7ae", size = 5083371, upload-time = "2026-02-04T19:39:48.468Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/c3/bb6cc48f51aa29701ac6461bf8e376c44865978546ba2735b216c68bf7ef/trexio-2.6.1-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:1ae768d01fc501383188ff84fab9cf02bd6205e2ec21dc2c83e7f6fa062030cd", size = 5143966, upload-time = "2026-02-04T19:39:51.2Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/f8/5103f68173e42f08a1c81f21416689b5eba703e97b4a86d5fd28e76f18e2/trexio-2.6.1-cp310-cp310-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ad7b3d47d5e3fccca2d42700d73775b0dacb6bb0e45fe501ec797225d4b7fd17", size = 5060554, upload-time = "2026-02-04T19:39:53.231Z" },
+    { url = "https://files.pythonhosted.org/packages/68/5c/009243e7d8f9454931b41830f0ee86e55df19c83aa848ac07e812df99ea5/trexio-2.6.1-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:04cbf00ac46c3b3f4dafca2767ee2edcc738c8cebde5d0c0052d177bd028af96", size = 5144704, upload-time = "2026-02-04T19:39:55.169Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/41/417151aedc6cb586813788e232e56debe349508d0545211e0dbf24ac2f8c/trexio-2.6.1-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:1c1b0264724f998f56852a320bb69ce1ba475afa9ff8296374b5dc1327d41819", size = 2468376, upload-time = "2026-02-04T19:39:56.978Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/f3/8ad294e40c12727ac6c7efeff17364c003ffd570d4a6816babb11e8e23ff/trexio-2.6.1-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:dc8d754b04931fc2ace88a944b23e7234e7c875266a795d04b5c8add6bfaa52d", size = 2140524, upload-time = "2026-02-04T19:39:58.473Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/ca/2af2670cbc7286b83551e5fe088af7adb9b57bc6eb8878a2cbc2c93aaf6a/trexio-2.6.1-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:6c7cd6e69007ac86bd25ef7dbc39dbc768a48719ba9570b5ae20827b4c73d2bf", size = 5206859, upload-time = "2026-02-04T19:40:00.469Z" },
+    { url = "https://files.pythonhosted.org/packages/da/9f/52018e8cff77ed865603d08d0a7c38db4dcefd42572615b2bf53decb1cf2/trexio-2.6.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:f479b7df4057097c81ba2ff11b5af0589a840cb574b8fa8788a20c708c0be13d", size = 5266764, upload-time = "2026-02-04T19:40:02.29Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/51/e8a8b7132884b70cb1a4445442351dd70a2a76ffb2862b44780e328577fc/trexio-2.6.1-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5fd695d3a8415e683c214208c110d2766256e286a490dcc234faef1e2024abfc", size = 5170700, upload-time = "2026-02-04T19:40:04.381Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/c0/9799e7d05de4836166b947c3eb10291febd0e03ffb51610b6c5d542953da/trexio-2.6.1-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:8d82d4c44764a4e7a699a52ba50350a1dcd7ba891176bc3704992770fa1134b8", size = 5263014, upload-time = "2026-02-04T19:40:05.898Z" },
+    { url = "https://files.pythonhosted.org/packages/66/b7/3950e5daeff5d11cbbed08a6e755994b0ef154de79556b387f1e6dcaef91/trexio-2.6.1-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:66184e724ebb37b462c6ee5685e1b7430e33182054c7c863fc21e0bfdd48051d", size = 2467641, upload-time = "2026-02-04T19:40:07.74Z" },
+    { url = "https://files.pythonhosted.org/packages/10/e8/9e23953864c12c04429c3eda1357939566a1ba11be67de91e96867f826e6/trexio-2.6.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:168557ea9612c7804ed4a2aca66e331e5054ae14bef0f2a9108cd734e0150d4e", size = 2141145, upload-time = "2026-02-04T19:40:09.071Z" },
+    { url = "https://files.pythonhosted.org/packages/39/83/ddc095c82594f9d31b8fee5f4e221abc306757195a2cc313c2a3ab49d8b0/trexio-2.6.1-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:10d1bbe11f31cd77f9d7e2f669dc66637b54dd98ff412837be4d60dd363779bc", size = 5214351, upload-time = "2026-02-04T19:40:10.594Z" },
+    { url = "https://files.pythonhosted.org/packages/54/b7/0c062691e8b17c0e7c53b6e1bb9b1f5f0c0279bf91012f163e4f8dadaff1/trexio-2.6.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:36b3d1b75e632846bd5d9e757fa5f5cd6ade51f32f8110e6ac2947bffea5335f", size = 5278812, upload-time = "2026-02-04T19:40:12.432Z" },
+    { url = "https://files.pythonhosted.org/packages/0f/48/73c7b6e052b43f1960e614ff22e66a2313f2c4abc008fe0f2568a52af1f0/trexio-2.6.1-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:16f20d0b973689c2cd13fa08ec6153d35315814e7454a5bb08597b3eb13f44f8", size = 5169247, upload-time = "2026-02-04T19:40:14.083Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/0b/5f43ecea4a9431819b50f5ea1fe40669e07a2ad22e2c5df8226e0aa0c6ee/trexio-2.6.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7b5cb959c6b9aaa08f445073290f985152e3c4916b6aea1bbe619178892d7c56", size = 5267233, upload-time = "2026-02-04T19:40:16.123Z" },
+    { url = "https://files.pythonhosted.org/packages/18/78/3b9b69920397a283be07e36e0bd7d8d5165bc0d1e5b9ea16baa3b12920de/trexio-2.6.1-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:95cce1278dd701b69cbb8beca09fc18f78ff78b0a7df396b7926a322971ef1c7", size = 2454517, upload-time = "2026-02-04T19:40:17.821Z" },
+    { url = "https://files.pythonhosted.org/packages/67/0e/cf4948469eefdbee8327e547a5c6e8e455182d4fe886013821c17b010c7d/trexio-2.6.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:a0c4fe9769bff7e6cd11cdd458e6d34e3c9b5cd3616be983b47f6280794cf695", size = 2141478, upload-time = "2026-02-04T19:40:19.258Z" },
+    { url = "https://files.pythonhosted.org/packages/9a/53/fc579d9250cb7f3b9004338dff5a8e489f8b2c7b8b23025277a0a056e39e/trexio-2.6.1-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:9a96740ae5c2f8c019fdb03bd749437b3f17a9fea67ec2ab07c66955ae5d51c1", size = 5216442, upload-time = "2026-02-04T19:40:20.732Z" },
+    { url = "https://files.pythonhosted.org/packages/50/8f/fb4cab5ad9e47fe4bb0d7816cbc48536bbdf586b9b5fb176b6aa7e9e7bff/trexio-2.6.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:9f2f1df4e029b486f059e785585543a97fec5ada65aa6079b4b0a1b0851e689e", size = 5278761, upload-time = "2026-02-04T19:40:22.407Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/14/92841adc4ba601094e8777ff5d8eca21cad7c53f9afc670156fe2a04e053/trexio-2.6.1-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:8efb53c6c0d7ca46a88ec06af6e43a66c9261205053ea08651d2221f5632af04", size = 5169315, upload-time = "2026-02-04T19:40:23.957Z" },
+    { url = "https://files.pythonhosted.org/packages/ef/d1/c64b14069872e82f789a5ee51d95e7fa8d5af684347c65a9837707280105/trexio-2.6.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:cb9438bd762577b8828a206b67d95bd3dca6f886419bcf0da6fb6e50e1219371", size = 5267159, upload-time = "2026-02-04T19:40:26.077Z" },
 ]
 
 [[package]]

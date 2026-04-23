@@ -52,3 +52,25 @@ jobs:
 
       - name: Run PySCF comparison tests
         run: uv run pytest tests/test_gto.py
+
+  tests-trexio:
+    name: Tests with TREXIO (Python 3.11)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install project, tests, and TREXIO
+        run: uv sync --extra test-trexio
+
+      - name: Run TREXIO-related tests
+        run: uv run pytest tests/test_trexio_parser.py tests/test_filetype.py

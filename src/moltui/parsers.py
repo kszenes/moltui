@@ -495,6 +495,11 @@ def load_molecule(filepath: str | Path) -> Molecule:
             "Use: moltui <file.gbw>"
         )
     else:
+        from .trexio_support import is_trexio_path, load_molecule_from_trexio
+
+        if is_trexio_path(filepath):
+            return load_molecule_from_trexio(filepath)
         raise ValueError(
-            f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, .hess, or .gbw"
+            f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, .hess, .gbw, "
+            "or TREXIO (.h5, .hdf5, .trexio; install optional extra: trexio)"
         )

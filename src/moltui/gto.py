@@ -48,8 +48,13 @@ class PrimShell:
 
 
 @dataclass
-class MoldenBasis:
-    """Parsed molden basis set and MO data (no PySCF objects)."""
+class GtoBasis:
+    """Contracted GTO shells, nuclear coordinates, and MO coefficients.
+
+    Field layout and AO/MO ordering follow the Molden file format (as from
+    :func:`parse_molden` and typical PySCF Molden exports). Other sources (e.g. TREXIO)
+    are mapped into this representation for :func:`eval_gto` and MO evaluation.
+    """
 
     atom_symbols: list[str]
     atom_coords_bohr: np.ndarray  # (natom, 3)
@@ -73,8 +78,8 @@ def _n_components(l: int, spherical: bool) -> int:
     return 2 * l + 1 if spherical else (l + 1) * (l + 2) // 2
 
 
-def parse_molden(filepath: str | Path) -> MoldenBasis:
-    """Parse a Molden file into atoms, basis, and MO data."""
+def parse_molden(filepath: str | Path) -> GtoBasis:
+    """Parse a Molden file into a :class:`GtoBasis`."""
     filepath = Path(filepath)
     lines = filepath.read_text().splitlines()
 
@@ -316,7 +321,7 @@ def parse_molden(filepath: str | Path) -> MoldenBasis:
     else:
         normal_modes_arr = None
 
-    return MoldenBasis(
+    return GtoBasis(
         atom_symbols=atom_symbols,
         atom_coords_bohr=coords_arr,
         shells=shells,

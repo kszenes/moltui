@@ -6,12 +6,14 @@ from pathlib import Path
 import numpy as np
 
 from .elements import Atom, Molecule, get_element
-from .gto import MoldenBasis, eval_gto, parse_molden
+from .gto import GtoBasis, eval_gto, parse_molden
 from .parsers import BOHR_TO_ANGSTROM, CubeData
 
 
 @dataclass
-class MoldenData:
+class OrbitalData:
+    """GTO basis, MO metadata, and optional normal modes (any source: Molden file, TREXIO, …)."""
+
     molecule: Molecule
     mo_energies: np.ndarray
     mo_occupations: np.ndarray
@@ -19,9 +21,35 @@ class MoldenData:
     mo_spins: list[str]
     n_mos: int
     homo_idx: int
-    _basis: MoldenBasis = field(repr=False)
+    _basis: GtoBasis = field(repr=False)
     mode_frequencies: np.ndarray | None = None  # (n_modes,)
     normal_modes: np.ndarray | None = None  # (n_modes, n_atoms, 3) in Angstrom
+
+    @classmethod
+    def from_gto_basis(
+        cls,
+        basis: GtoBasis,
+        molecule: Molecule,
+        *,
+        mode_frequencies: np.ndarray | None = None,
+        normal_modes: np.ndarray | None = None,
+    ) -> OrbitalData:
+        """Build from a :class:`~moltui.gto.GtoBasis` and matching ``molecule``."""
+        n_mos = basis.mo_coefficients.shape[1] if basis.mo_coefficients.ndim == 2 else 0
+        occ_indices = np.where(basis.mo_occupations > 0.5)[0] if n_mos > 0 else np.array([])
+        homo_idx = int(occ_indices[-1]) if len(occ_indices) > 0 else 0
+        return cls(
+            molecule=molecule,
+            mo_energies=basis.mo_energies,
+            mo_occupations=basis.mo_occupations,
+            mo_symmetries=basis.mo_symmetries,
+            mo_spins=basis.mo_spins,
+            n_mos=n_mos,
+            homo_idx=homo_idx,
+            _basis=basis,
+            mode_frequencies=mode_frequencies,
+            normal_modes=normal_modes,
+        )
 
 
 def parse_molden_atoms(filepath: str | Path) -> Molecule:
@@ -54,7 +82,7 @@ def parse_molden_atoms(filepath: str | Path) -> Molecule:
     return mol
 
 
-def load_molden_data(filepath: str | Path) -> MoldenData:
+def load_molden_data(filepath: str | Path) -> OrbitalData:
     """Load full molden data including MO coefficients."""
     filepath = Path(filepath)
     basis = parse_molden(filepath)
@@ -70,13 +98,8 @@ def load_molden_data(filepath: str | Path) -> MoldenData:
     molecule = Molecule(atoms=atoms, bonds=[])
     molecule.detect_bonds()
 
-    # Find HOMO (if MO data exists)
-    n_mos = basis.mo_coefficients.shape[1] if basis.mo_coefficients.ndim == 2 else 0
-    occ_indices = np.where(basis.mo_occupations > 0.5)[0] if n_mos > 0 else np.array([])
-    homo_idx = int(occ_indices[-1]) if len(occ_indices) > 0 else 0
-
-    normal_modes = None
-    mode_frequencies = None
+    normal_modes: np.ndarray | None = None
+    mode_frequencies: np.ndarray | None = None
     if basis.normal_modes is not None:
         if basis.normal_modes.shape[1] != len(atoms):
             raise ValueError("Normal-mode vectors do not match atom count")
@@ -84,30 +107,24 @@ def load_molden_data(filepath: str | Path) -> MoldenData:
         if basis.frequencies is not None:
             mode_frequencies = basis.frequencies[: normal_modes.shape[0]]
 
-    return MoldenData(
-        molecule=molecule,
-        mo_energies=basis.mo_energies,
-        mo_occupations=basis.mo_occupations,
-        mo_symmetries=basis.mo_symmetries,
-        mo_spins=basis.mo_spins,
-        n_mos=n_mos,
-        homo_idx=homo_idx,
+    return OrbitalData.from_gto_basis(
+        basis,
+        molecule,
         mode_frequencies=mode_frequencies,
         normal_modes=normal_modes,
-        _basis=basis,
     )
 
 
 def evaluate_mo(
-    molden_data: MoldenData,
+    orbital_data: OrbitalData,
     mo_index: int,
     grid_shape: tuple[int, int, int] = (60, 60, 60),
     padding: float = 5.0,
 ) -> CubeData:
     """Evaluate a molecular orbital on a 3D grid. Returns CubeData."""
-    if molden_data.n_mos == 0:
-        raise ValueError("No molecular orbitals available in this Molden file")
-    basis = molden_data._basis
+    if orbital_data.n_mos == 0:
+        raise ValueError("No molecular orbitals are available in this data")
+    basis = orbital_data._basis
     coords = basis.atom_coords_bohr
 
     padding_bohr = padding / BOHR_TO_ANGSTROM
@@ -136,7 +153,7 @@ def evaluate_mo(
     )
 
     return CubeData(
-        molecule=molden_data.molecule,
+        molecule=orbital_data.molecule,
         origin=origin,
         axes=axes,
         n_points=grid_shape,

@@ -41,7 +41,7 @@ async def test_first_n_changes_mo_once_when_table_unfocused() -> None:
     ]
     molecule = Molecule(atoms=atoms, bonds=[])
     molecule.detect_bonds()
-    molden_data = types.SimpleNamespace(
+    orbital_data = types.SimpleNamespace(
         molecule=molecule,
         mo_energies=np.array([-0.5, 0.2]),
         mo_occupations=np.array([2.0, 0.0]),
@@ -51,10 +51,10 @@ async def test_first_n_changes_mo_once_when_table_unfocused() -> None:
         homo_idx=0,
     )
     app = MoltuiApp(
-        molecule=molden_data.molecule,
+        molecule=orbital_data.molecule,
         filepath="sample.molden",
-        molden_data=molden_data,
-        current_mo=molden_data.homo_idx,
+        orbital_data=orbital_data,
+        current_mo=orbital_data.homo_idx,
     )
 
     # Keep the test focused on event-routing behavior.

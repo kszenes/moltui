@@ -4,7 +4,10 @@ import asyncio
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
+
+if TYPE_CHECKING:
+    from .molden import OrbitalData
 
 import numpy as np
 from rich.segment import Segment
@@ -83,14 +86,14 @@ def _export_render_kwargs(view: "MoleculeView") -> ExportRenderKwargs:
 
 
 def _compute_mo_isosurfaces(
-    molden_data,
+    orbital_data,
     mo_idx: int,
     isovalue: float = 0.05,
     grid_shape: tuple[int, int, int] = (60, 60, 60),
 ) -> list[IsosurfaceMesh]:
     from .molden import evaluate_mo
 
-    cube_data = evaluate_mo(molden_data, mo_idx, grid_shape=grid_shape)
+    cube_data = evaluate_mo(orbital_data, mo_idx, grid_shape=grid_shape)
     return extract_isosurfaces(cube_data, isovalue=isovalue)
 
 
@@ -360,7 +363,7 @@ class MoltuiApp(App):
         molecule: Molecule,
         filepath: str = "",
         isosurfaces: list[IsosurfaceMesh] | None = None,
-        molden_data=None,
+        orbital_data=None,
         current_mo: int = 0,
         trajectory_data: TrajectoryData | None = None,
         normal_mode_data: NormalModeData | None = None,
@@ -369,7 +372,7 @@ class MoltuiApp(App):
         self.molecule = molecule
         self.filepath = filepath
         self._isosurfaces = isosurfaces or []
-        self.molden_data = molden_data
+        self.orbital_data = orbital_data
         self.current_mo = current_mo
         self._cube_data: CubeData | None = None
         self.isovalue: float = 0.05
@@ -403,8 +406,8 @@ class MoltuiApp(App):
         view.set_molecule(self.molecule, self._isosurfaces)
         panel = self.query_one(GeometryPanel)
         panel.set_molecule(self.molecule)
-        if self._has_molden_mos():
-            md = self.molden_data
+        if self._has_orbital_mos():
+            md = self.orbital_data
             assert md is not None
             mo_panel = self.query_one(MOPanel)
             mo_panel.set_mo_data(
@@ -425,7 +428,7 @@ class MoltuiApp(App):
                 ),
                 current_mode=self.normal_mode_data.mode_index,
             )
-        if self._has_cube_mo() and not self._has_molden_mos():
+        if self._has_cube_mo() and not self._has_orbital_mos():
             self._set_view_mode(_VIEW_MO, reveal_panel=False)
         else:
             initial_mode = self._available_view_modes()[0]
@@ -441,19 +444,19 @@ class MoltuiApp(App):
             or self.query_one(VisualPanel).has_class("visible")
         )
 
-    def _has_molden_mos(self) -> bool:
-        return self.molden_data is not None and self.molden_data.n_mos > 0
+    def _has_orbital_mos(self) -> bool:
+        return self.orbital_data is not None and self.orbital_data.n_mos > 0
 
     def _has_cube_mo(self) -> bool:
         return (
-            self.molden_data is None
+            self.orbital_data is None
             and self._cube_data is not None
             and Path(self.filepath).suffix.lower() == ".cube"
         )
 
     def _available_view_modes(self) -> list[str]:
         modes: list[str] = []
-        if self._has_molden_mos() or self._has_cube_mo():
+        if self._has_orbital_mos() or self._has_cube_mo():
             modes.append(_VIEW_MO)
         if self.normal_mode_data is not None:
             modes.append(_VIEW_NORMAL)
@@ -463,10 +466,10 @@ class MoltuiApp(App):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         _ = parameters
         if action == "toggle_mo_panel":
-            if not self._has_molden_mos() and not self._has_cube_mo():
+            if not self._has_orbital_mos() and not self._has_cube_mo():
                 return False
         if action in ("next_mo", "prev_mo"):
-            if not self._has_molden_mos():
+            if not self._has_orbital_mos():
                 return False
         if action in ("next_mo", "prev_mo", "toggle_orbitals") and self._view_mode != _VIEW_MO:
             return False
@@ -518,10 +521,10 @@ class MoltuiApp(App):
             parts.append("PLAY")
         if (
             self._view_mode == _VIEW_MO
-            and self.molden_data is not None
-            and self.molden_data.n_mos > 0
+            and self.orbital_data is not None
+            and self.orbital_data.n_mos > 0
         ):
-            md = self.molden_data
+            md = self.orbital_data
             energy = md.mo_energies[self.current_mo]
             occ = md.mo_occupations[self.current_mo]
             sym = (
@@ -892,7 +895,7 @@ class MoltuiApp(App):
             return
 
         stem = Path(self.filepath).stem
-        if self.molden_data is not None:
+        if self.orbital_data is not None:
             mo_label = f".{self.current_mo + 1:03d}"
         else:
             mo_label = ""
@@ -1111,7 +1114,7 @@ class MoltuiApp(App):
             if self.normal_mode_data is not None:
                 self._reset_normal_mode_geometry()
             view.show_orbitals = True
-            if self._has_molden_mos():
+            if self._has_orbital_mos():
                 mo_panel = self.query_one(MOPanel)
                 if not self._panel_hidden:
                     mo_panel.add_class("visible")
@@ -1136,10 +1139,10 @@ class MoltuiApp(App):
         self._update_title()
 
     def action_toggle_mo_panel(self) -> None:
-        if not self._has_molden_mos() and not self._has_cube_mo():
+        if not self._has_orbital_mos() and not self._has_cube_mo():
             self.notify("No MO data (molden files only)", timeout=2)
             return
-        self._set_view_mode(_VIEW_MO, reveal_panel=self._has_molden_mos())
+        self._set_view_mode(_VIEW_MO, reveal_panel=self._has_orbital_mos())
 
     def action_toggle_normal_mode_panel(self) -> None:
         if self.normal_mode_data is None:
@@ -1182,7 +1185,7 @@ class MoltuiApp(App):
             view = self.query_one(MoleculeView)
             view.isosurfaces = self._isosurfaces
             view._invalidate_cache()
-        elif self.molden_data is not None and self.molden_data.n_mos > 0:
+        elif self.orbital_data is not None and self.orbital_data.n_mos > 0:
             self._switch_mo()
 
     def on_visual_panel_lighting_changed(self, event: VisualPanel.LightingChanged) -> None:
@@ -1231,9 +1234,9 @@ class MoltuiApp(App):
 
     def _set_current_mo(self, mo_idx: int) -> None:
         """Single entry point for all MO changes."""
-        if self.molden_data is None or self.molden_data.n_mos == 0:
+        if self.orbital_data is None or self.orbital_data.n_mos == 0:
             return
-        mo_idx = max(0, min(mo_idx, self.molden_data.n_mos - 1))
+        mo_idx = max(0, min(mo_idx, self.orbital_data.n_mos - 1))
         if mo_idx == self.current_mo:
             return
         self.current_mo = mo_idx
@@ -1268,16 +1271,16 @@ class MoltuiApp(App):
             self._switch_mo()
 
     def _switch_mo(self) -> None:
-        if self.molden_data is None or self.molden_data.n_mos == 0:
+        if self.orbital_data is None or self.orbital_data.n_mos == 0:
             return
         self._mo_switch_task = asyncio.create_task(self._switch_mo_async(self.current_mo))
 
     async def _switch_mo_async(self, target_mo: int) -> None:
         try:
-            if self.molden_data is None:
+            if self.orbital_data is None:
                 return
             isosurfaces = await asyncio.to_thread(
-                _compute_mo_isosurfaces, self.molden_data, target_mo, self.isovalue
+                _compute_mo_isosurfaces, self.orbital_data, target_mo, self.isovalue
             )
             # If user moved again while this was computing, skip stale frame.
             if target_mo != self.current_mo:
@@ -1375,6 +1378,30 @@ def _convert_gbw_to_molden(gbw_path: str | Path) -> Path:
     return molden_file
 
 
+def _cli_homo_mo_isosurfaces(orbital_data: OrbitalData) -> tuple[list[IsosurfaceMesh], int]:
+    """Evaluate the HOMO on a grid and mesh isosurfaces for CLI startup."""
+    from .molden import evaluate_mo
+
+    current_mo = orbital_data.homo_idx
+    cube_data = evaluate_mo(orbital_data, current_mo)
+    return extract_isosurfaces(cube_data), current_mo
+
+
+def _prepare_trexio_cli_session(
+    filepath: str | Path,
+) -> tuple[Molecule, OrbitalData | None, list[IsosurfaceMesh], int]:
+    """Load a TREXIO path for the CLI: MO data when present, else geometry only."""
+    from .trexio_molden import load_trexio_orbital_data
+    from .trexio_support import load_molecule_from_trexio
+
+    orbital_data = load_trexio_orbital_data(filepath)
+    if orbital_data is not None and orbital_data.n_mos > 0:
+        surfs, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
+        return orbital_data.molecule, orbital_data, surfs, current_mo
+    mol = load_molecule_from_trexio(filepath)
+    return mol, None, [], 0
+
+
 def run():
     import argparse
 
@@ -1400,7 +1427,7 @@ def run():
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
     isosurfaces: list[IsosurfaceMesh] = []
-    molden_data = None
+    orbital_data = None
     current_mo = 0
     trajectory_data: TrajectoryData | None = None
     normal_mode_data: NormalModeData | None = None
@@ -1427,21 +1454,19 @@ def run():
             isosurfaces = extract_isosurfaces(cube_data)
             cube_data_for_app = cube_data
         elif filetype == "molden":
-            from .molden import evaluate_mo, load_molden_data
+            from .molden import load_molden_data
 
-            molden_data = load_molden_data(filepath)
-            molecule = molden_data.molecule
-            if molden_data.normal_modes is not None:
+            orbital_data = load_molden_data(filepath)
+            molecule = orbital_data.molecule
+            if orbital_data.normal_modes is not None:
                 eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])
                 normal_mode_data = NormalModeData(
                     equilibrium_coords=eq_coords,
-                    mode_vectors=molden_data.normal_modes,
-                    frequencies=molden_data.mode_frequencies,
+                    mode_vectors=orbital_data.normal_modes,
+                    frequencies=orbital_data.mode_frequencies,
                 )
-            if molden_data.n_mos > 0:
-                current_mo = molden_data.homo_idx
-                cube_data = evaluate_mo(molden_data, current_mo)
-                isosurfaces = extract_isosurfaces(cube_data)
+            if orbital_data.n_mos > 0:
+                isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
         elif filetype == "hess":
             hess_data = parse_orca_hess_data(filepath)
             molecule = hess_data.molecule
@@ -1456,6 +1481,8 @@ def run():
             traj = parse_xyz_trajectory(filepath)
             molecule = traj.molecule
             trajectory_data = TrajectoryData(frames=traj.frames)
+        elif filetype == "trexio":
+            molecule, orbital_data, isosurfaces, current_mo = _prepare_trexio_cli_session(filepath)
         else:
             molecule = load_molecule(filepath)
 
@@ -1463,7 +1490,7 @@ def run():
             molecule=molecule,
             filepath=parsed.file,
             isosurfaces=isosurfaces,
-            molden_data=molden_data,
+            orbital_data=orbital_data,
             current_mo=current_mo,
             trajectory_data=trajectory_data,
             normal_mode_data=normal_mode_data,

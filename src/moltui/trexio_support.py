@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .elements import Atom, Molecule, get_element, get_element_by_number
+from .elements import Atom, Element, Molecule, get_element, get_element_by_number
 from .parsers import BOHR_TO_ANGSTROM
 
 _HDF5_TREXIO_SUFFIXES = frozenset({".h5", ".hdf5"})
@@ -90,6 +90,34 @@ def trexio_backend_for_path(path: Path) -> int:
     return trexio.TREXIO_HDF5
 
 
+def read_trexio_nucleus_elements(f, trexio, n: int, *, path: Path | None = None) -> list[Element]:
+    """Map ``nucleus.label`` or ``nucleus.charge`` to ``n`` :class:`Element` instances.
+
+    ``n`` must be ``nucleus.num`` as already read by the caller. When ``path`` is
+    set and the file is HDF5-classified, invalid-data errors use the same generic
+    message as :func:`load_molecule_from_trexio` before a specific :exc:`ValueError`.
+    """
+    if trexio.has_nucleus_label(f):
+        labels = trexio.read_nucleus_label(f)
+        if len(labels) != n:
+            if path is not None:
+                _raise_if_invalid_hdf5_trexio(path)
+            raise ValueError("TREXIO nucleus.label length does not match nucleus.num.")
+        return [get_element(str(lbl)) for lbl in labels]
+    if trexio.has_nucleus_charge(f):
+        charges = np.asarray(trexio.read_nucleus_charge(f), dtype=np.float64)
+        if charges.shape[0] != n:
+            if path is not None:
+                _raise_if_invalid_hdf5_trexio(path)
+            raise ValueError("TREXIO nucleus.charge length does not match nucleus.num.")
+        return [get_element_by_number(int(round(float(z)))) for z in charges]
+    if path is not None:
+        _raise_if_invalid_hdf5_trexio(path)
+    raise ValueError(
+        "TREXIO file has neither nucleus.label nor nucleus.charge; cannot assign elements."
+    )
+
+
 def load_molecule_from_trexio(filepath: str | Path) -> Molecule:
     """Load nuclear coordinates from a TREXIO file (HDF5) or text-backend directory."""
     try:
@@ -121,24 +149,7 @@ def load_molecule_from_trexio(filepath: str | Path) -> Molecule:
                     )
                 coords_ang = coords_bohr * BOHR_TO_ANGSTROM
 
-                if trexio.has_nucleus_label(f):
-                    labels = trexio.read_nucleus_label(f)
-                    if len(labels) != n:
-                        _raise_if_invalid_hdf5_trexio(path)
-                        raise ValueError("TREXIO nucleus.label length does not match nucleus.num.")
-                    elements = [get_element(str(lbl)) for lbl in labels]
-                elif trexio.has_nucleus_charge(f):
-                    charges = np.asarray(trexio.read_nucleus_charge(f), dtype=np.float64)
-                    if charges.shape[0] != n:
-                        _raise_if_invalid_hdf5_trexio(path)
-                        raise ValueError("TREXIO nucleus.charge length does not match nucleus.num.")
-                    elements = [get_element_by_number(int(round(z))) for z in charges]
-                else:
-                    _raise_if_invalid_hdf5_trexio(path)
-                    raise ValueError(
-                        "TREXIO file has neither nucleus.label nor nucleus.charge; "
-                        "cannot assign elements."
-                    )
+                elements = read_trexio_nucleus_elements(f, trexio, n, path=path)
     except trexio.Error as exc:
         if _hdf5_trexio_candidate(path):
             raise ValueError(_not_trexio_hdf5_message(path)) from exc

@@ -134,5 +134,5 @@ def test_mo_values_match_pyscf(tmp_path: Path) -> None:
         rel_err = np.max(np.abs(mo_numpy - mo_pyscf)) / max_val
         corr = np.corrcoef(mo_numpy, mo_pyscf)[0, 1]
 
-        assert rel_err < 1e-10, f"MO {mo_idx}: relative error {rel_err:.2e}"
-        assert corr > 1.0 - 1e-12, f"MO {mo_idx}: correlation {corr}"
+        assert rel_err < 1e-6, f"MO {mo_idx}: relative error {rel_err:.2e}"
+        assert corr > 1.0 - 1e-6, f"MO {mo_idx}: correlation {corr}"

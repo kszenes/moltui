@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from .elements import Atom, Molecule, get_element
-from .gto import GtoBasis, eval_gto, parse_molden
+from .gto import GtoBasis, eval_gto, parse_molden, prepare_gto_cache
 from .parsers import BOHR_TO_ANGSTROM, CubeData
 
 
@@ -24,6 +24,11 @@ class OrbitalData:
     _basis: GtoBasis = field(repr=False)
     mode_frequencies: np.ndarray | None = None  # (n_modes,)
     normal_modes: np.ndarray | None = None  # (n_modes, n_atoms, 3) in Angstrom
+    # AO evaluation caches — populated lazily by evaluate_mo, keyed by (grid_shape, padding).
+    # _ao_cache_values stores the float32 AO matrix (npts, nao); halves memory vs float64.
+    _gto_prepared_cache: tuple[list, np.ndarray] | None = field(default=None, repr=False)
+    _ao_cache_key: tuple[tuple[int, int, int], float] | None = field(default=None, repr=False)
+    _ao_cache_values: np.ndarray | None = field(default=None, repr=False)
 
     @classmethod
     def from_gto_basis(
@@ -121,7 +126,18 @@ def evaluate_mo(
     grid_shape: tuple[int, int, int] = (60, 60, 60),
     padding: float = 5.0,
 ) -> CubeData:
-    """Evaluate a molecular orbital on a 3D grid. Returns CubeData."""
+    """Evaluate a molecular orbital on a 3D grid. Returns CubeData.
+
+    The AO matrix (npts, nao) is cached as float32 on orbital_data after the
+    first call for a given grid_shape/padding.  Subsequent calls for the same
+    grid (different MO index) skip the expensive GTO evaluation and only do a
+    float32 matrix-vector multiply — roughly 100x faster.
+
+    TODO: for very large grids (e.g. 160³ export) the float32 AO matrix can
+    exceed available RAM (~5 GiB for 32 atoms at 160³).  If that becomes a
+    problem, add chunked z-slice evaluation via eval_mo_direct so the full
+    matrix is never materialised.
+    """
     if orbital_data.n_mos == 0:
         raise ValueError("No molecular orbitals are available in this data")
     basis = orbital_data._basis
@@ -132,15 +148,31 @@ def evaluate_mo(
     max_c = coords.max(axis=0) + padding_bohr
 
     nx, ny, nz = grid_shape
-    x = np.linspace(min_c[0], max_c[0], nx)
-    y = np.linspace(min_c[1], max_c[1], ny)
-    z = np.linspace(min_c[2], max_c[2], nz)
 
-    xx, yy, zz = np.meshgrid(x, y, z, indexing="ij")
-    grid_points = np.column_stack([xx.ravel(), yy.ravel(), zz.ravel()])
+    # Lazily build the prepared-shell cache (normalisations + deduped centres).
+    if orbital_data._gto_prepared_cache is None:
+        orbital_data._gto_prepared_cache = prepare_gto_cache(basis.shells, basis.spherical)
 
-    ao = eval_gto(basis.shells, grid_points, basis.spherical)
-    mo_vec = basis.mo_coefficients[:, mo_index]
+    cache_key = (grid_shape, float(padding))
+    if orbital_data._ao_cache_values is not None and orbital_data._ao_cache_key == cache_key:
+        ao = orbital_data._ao_cache_values
+    else:
+        x = np.linspace(min_c[0], max_c[0], nx)
+        y = np.linspace(min_c[1], max_c[1], ny)
+        z = np.linspace(min_c[2], max_c[2], nz)
+        xx, yy, zz = np.meshgrid(x, y, z, indexing="ij")
+        grid_points = np.column_stack([xx.ravel(), yy.ravel(), zz.ravel()])
+        # eval_gto returns float32; store directly without an extra copy.
+        ao = eval_gto(
+            basis.shells,
+            grid_points,
+            basis.spherical,
+            prepared_cache=orbital_data._gto_prepared_cache,
+        )
+        orbital_data._ao_cache_values = ao
+        orbital_data._ao_cache_key = cache_key
+
+    mo_vec = basis.mo_coefficients[:, mo_index].astype(np.float32, copy=False)
     mo_vals = ao @ mo_vec
 
     origin = min_c

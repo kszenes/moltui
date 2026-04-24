@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .elements import Atom, Element, Molecule, get_element, get_element_by_number
+
+if TYPE_CHECKING:
+    from .molden import OrbitalData
 
 BOHR_TO_ANGSTROM = 0.529177249
 
@@ -1044,9 +1050,10 @@ def _parse_cclib_data(filepath: str | Path):
             "Install it with: pip install 'moltui[cclib]'"
         ) from exc
 
-    data = cclib.io.ccread(str(filepath))
-    if data is None:
+    parser = cclib.io.ccopen(str(filepath))
+    if parser is None:
         raise ValueError(f"cclib could not parse file: {filepath}")
+    data = parser.parse()
     return data
 
 
@@ -1073,6 +1080,98 @@ def load_trajectory_from_cclib(filepath: str | Path) -> XYZTrajectory:
     frames = np.array(data.atomcoords, dtype=np.float64)  # (n_frames, n_atoms, 3)
     mol = _cclib_data_to_molecule(data, frame_index=0)
     return XYZTrajectory(molecule=mol, frames=frames)
+
+
+_AM_MAP = {"S": 0, "P": 1, "D": 2, "F": 3, "G": 4}
+_EV_TO_HARTREE = 1.0 / 27.2114
+
+
+def _cclib_detect_spherical(gbasis, nbasis: int) -> dict[int, bool]:
+    """Determine which angular momenta use spherical harmonics by matching nbasis."""
+    shells_by_l: dict[int, int] = {}
+    for atom_shells in gbasis:
+        for am_label, _ in atom_shells:
+            l = _AM_MAP.get(am_label, -1)
+            if l >= 2:
+                shells_by_l[l] = shells_by_l.get(l, 0) + 1
+
+    fixed = sum(
+        2 * l + 1
+        for atom_shells in gbasis
+        for am_label, _ in atom_shells
+        if (l := _AM_MAP.get(am_label, -1)) >= 0 and l < 2
+    )
+    sph_total = fixed + sum(count * (2 * l + 1) for l, count in shells_by_l.items())
+    cart_total = fixed + sum(count * (l + 1) * (l + 2) // 2 for l, count in shells_by_l.items())
+
+    if sph_total == nbasis:
+        return {l: True for l in shells_by_l}
+    elif cart_total == nbasis:
+        return {l: False for l in shells_by_l}
+    return {l: True for l in shells_by_l}  # default to spherical
+
+
+def load_orbital_data_from_cclib(filepath: str | Path) -> "OrbitalData | None":
+    """Load MO data from a cclib-supported QC output file, or None if unavailable."""
+    from .gto import GtoBasis, PrimShell, _prim_norm
+    from .molden import OrbitalData
+
+    data = _parse_cclib_data(filepath)
+    if not (hasattr(data, "mocoeffs") and hasattr(data, "gbasis")):
+        return None
+
+    coords_bohr = data.atomcoords[-1] / BOHR_TO_ANGSTROM
+    atom_symbols = [get_element_by_number(int(z)).symbol for z in data.atomnos]
+    spherical = _cclib_detect_spherical(data.gbasis, data.nbasis)
+
+    # Build PrimShell list and AO row-permutation (cclib → molden/eval_gto order).
+    # P shells: cclib emits [Pz, Px, Py]; eval_gto expects [Px, Py, Pz] → select [1,2,0].
+    # D and higher spherical: ordering matches (dz2, dxz, dyz, dx2-y2, dxy).
+    shells: list[PrimShell] = []
+    ao_perm: list[int] = []
+    cclib_ao_idx = 0
+
+    for atom_idx, atom_shells in enumerate(data.gbasis):
+        center = coords_bohr[atom_idx]
+        for am_label, primitives in atom_shells:
+            l = _AM_MAP[am_label]
+            exponents = np.array([p[0] for p in primitives])
+            # cclib stores raw contraction coefficients (for unnormalized primitives).
+            # gto.py expects coefficients in the Molden convention (c_k * N_k), so
+            # we pre-multiply each coefficient by its primitive normalization factor.
+            coefficients = np.array([p[1] * _prim_norm(l, p[0]) for p in primitives])
+            shells.append(
+                PrimShell(center=center, l=l, exponents=exponents, coefficients=coefficients)
+            )
+
+            is_sph = spherical.get(l, l <= 1)
+            ncomp = (2 * l + 1) if is_sph else (l + 1) * (l + 2) // 2
+
+            local_sel = [1, 2, 0] if l == 1 else list(range(ncomp))
+            for j in local_sel:
+                ao_perm.append(cclib_ao_idx + j)
+            cclib_ao_idx += ncomp
+
+    # mocoeffs[0]: (nmo, nao) → transpose to (nao, nmo), then reorder rows
+    mo_coefficients = data.mocoeffs[0].T[ao_perm, :]
+    mo_energies = data.moenergies[0] * _EV_TO_HARTREE
+    mo_occupations = np.array(data.nooccnos[0]) if hasattr(data, "nooccnos") else np.zeros(data.nmo)
+    mo_symmetries = list(data.mosyms[0]) if hasattr(data, "mosyms") else [""] * data.nmo
+    mo_spins = ["Alpha"] * data.nmo
+
+    mol = _cclib_data_to_molecule(data, frame_index=-1)
+    basis = GtoBasis(
+        atom_symbols=atom_symbols,
+        atom_coords_bohr=coords_bohr,
+        shells=shells,
+        mo_energies=mo_energies,
+        mo_occupations=mo_occupations,
+        mo_coefficients=mo_coefficients,
+        mo_symmetries=mo_symmetries,
+        mo_spins=mo_spins,
+        spherical=spherical,
+    )
+    return OrbitalData.from_gto_basis(basis, mol)
 
 
 def load_molecule(filepath: str | Path) -> Molecule:

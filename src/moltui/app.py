@@ -1763,12 +1763,15 @@ def run():
                 _prepare_trexio_cli_session(filepath)
             )
         elif filetype == "cclib":
-            from .parsers import load_trajectory_from_cclib
+            from .parsers import load_orbital_data_from_cclib, load_trajectory_from_cclib
 
             traj = load_trajectory_from_cclib(filepath)
             molecule = traj.molecule
             if len(traj.frames) > 1:
                 trajectory_data = TrajectoryData(frames=traj.frames)
+            orbital_data = load_orbital_data_from_cclib(filepath)
+            if orbital_data is not None and orbital_data.n_mos > 0:
+                isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
         else:
             molecule = load_molecule(filepath)
 

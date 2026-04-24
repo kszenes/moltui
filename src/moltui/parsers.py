@@ -36,6 +36,7 @@ class HessData:
     molecule: Molecule
     frequencies: np.ndarray | None = None  # (n_modes,)
     normal_modes: np.ndarray | None = None  # (n_modes, n_atoms, 3) in Angstrom
+    symmetries: list[str] | None = None  # (n_modes,) irrep labels
 
 
 def _parse_float(token: str) -> float:
@@ -1136,14 +1137,19 @@ def load_normal_modes_from_cclib(filepath: str | Path) -> HessData | None:
     frequencies = np.array(data.vibfreqs, dtype=np.float64)  # (n_modes,)
     # vibdisps shape: (n_modes, n_atoms, 3) — already in Angstrom
     normal_modes = np.array(data.vibdisps, dtype=np.float64)
+    symmetries: list[str] | None = list(data.vibsyms) if hasattr(data, "vibsyms") else None
 
     nonzero = np.nonzero(frequencies)[0]
     if len(nonzero) < len(frequencies):
         first = int(nonzero[0]) if len(nonzero) > 0 else len(frequencies)
         frequencies = frequencies[first:]
         normal_modes = normal_modes[first:]
+        if symmetries is not None:
+            symmetries = symmetries[first:]
 
-    return HessData(molecule=mol, frequencies=frequencies, normal_modes=normal_modes)
+    return HessData(
+        molecule=mol, frequencies=frequencies, normal_modes=normal_modes, symmetries=symmetries
+    )
 
 
 def load_orbital_data_from_cclib(filepath: str | Path) -> "OrbitalData | None":

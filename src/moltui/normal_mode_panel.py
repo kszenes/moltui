@@ -29,17 +29,22 @@ class NormalModePanel(SelectionTablePanel):
 
     def __init__(self) -> None:
         super().__init__(table_id="normal-mode-table")
-        self._mode_data: list[tuple[int, float | None]] = []
+        self._mode_data: list[tuple[int, float | None, str | None]] = []
         self._current_mode: int = 0
 
     def set_mode_data(
-        self, mode_count: int, frequencies: list[float] | None, current_mode: int
+        self,
+        mode_count: int,
+        frequencies: list[float] | None,
+        current_mode: int,
+        symmetries: list[str] | None = None,
     ) -> None:
         self._current_mode = current_mode
         self._mode_data = []
         for i in range(mode_count):
             freq = frequencies[i] if frequencies is not None and i < len(frequencies) else None
-            self._mode_data.append((i, freq))
+            sym = symmetries[i] if symmetries is not None and i < len(symmetries) else None
+            self._mode_data.append((i, freq, sym))
         if self.is_mounted:
             self._populate_table()
 
@@ -50,12 +55,19 @@ class NormalModePanel(SelectionTablePanel):
         def _populate() -> None:
             table = self._table()
             table.clear(columns=True)
-            table.add_columns("Mode", "Frequency (cm^-1)")
+            has_irreps = any(sym is not None for _, _, sym in self._mode_data)
+            if has_irreps:
+                table.add_columns("Mode", "Irrep", "Frequency (cm^-1)")
+            else:
+                table.add_columns("Mode", "Frequency (cm^-1)")
 
             current_row = 0
-            for idx, (mode_idx, freq) in enumerate(self._mode_data):
+            for idx, (mode_idx, freq, irrep) in enumerate(self._mode_data):
                 freq_text = f"{freq:>10.2f}" if freq is not None else "-"
-                table.add_row(str(mode_idx + 1), freq_text, key=str(mode_idx))
+                if has_irreps:
+                    table.add_row(str(mode_idx + 1), irrep or "-", freq_text, key=str(mode_idx))
+                else:
+                    table.add_row(str(mode_idx + 1), freq_text, key=str(mode_idx))
                 if mode_idx == self._current_mode:
                     current_row = idx
 

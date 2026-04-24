@@ -174,6 +174,7 @@ class NormalModeData:
     equilibrium_coords: np.ndarray  # (n_atoms, 3) in Angstrom
     mode_vectors: np.ndarray  # (n_modes, n_atoms, 3) in Angstrom
     frequencies: np.ndarray | None = None  # (n_modes,)
+    symmetries: list[str] | None = None  # (n_modes,) irrep labels
     mode_index: int = 0
     phase: float = 0.0
     phase_step: float = 0.30
@@ -547,6 +548,7 @@ class MoltuiApp(App):
                     if self.normal_mode_data.frequencies is not None
                     else None
                 ),
+                symmetries=self.normal_mode_data.symmetries,
                 current_mode=self.normal_mode_data.mode_index,
             )
         if self._has_cube_mo() and not self._has_orbital_mos():
@@ -1749,10 +1751,23 @@ def run():
                 vib_modes, vib_freqs = _filter_rigid_body_modes(
                     hess_data.normal_modes, hess_data.frequencies
                 )
+                vib_symmetries = hess_data.symmetries
+                if (
+                    vib_symmetries is not None
+                    and hess_data.frequencies is not None
+                    and len(vib_symmetries) == len(hess_data.frequencies)
+                ):
+                    freqs = np.asarray(hess_data.frequencies, dtype=np.float64)
+                    keep = np.abs(freqs) >= _ZERO_MODE_FREQ_TOL_CM1
+                    if not keep.all():
+                        vib_symmetries = [
+                            sym for sym, keep_mode in zip(vib_symmetries, keep) if keep_mode
+                        ]
                 normal_mode_data = NormalModeData(
                     equilibrium_coords=eq_coords,
                     mode_vectors=vib_modes,
                     frequencies=vib_freqs,
+                    symmetries=vib_symmetries,
                 )
         elif filetype == "xyz":
             traj = parse_xyz_trajectory(filepath)
@@ -1783,6 +1798,7 @@ def run():
                     equilibrium_coords=eq_coords,
                     mode_vectors=hess_data.normal_modes,
                     frequencies=hess_data.frequencies,
+                    symmetries=hess_data.symmetries,
                 )
         else:
             molecule = load_molecule(filepath)

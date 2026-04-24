@@ -1543,12 +1543,19 @@ def _detect_filetype(filepath: str) -> str:
         return sniffed_qc
     if suffix in (".cube", ".cub"):
         return "cube"
+    try:
+        import cclib
+
+        if cclib.io.ccopen(filepath) is not None:
+            return "cclib"
+    except Exception:
+        pass
     raise ValueError(
         f"Unsupported file format: {filepath!s}. "
         "Supported formats: .xyz, .extxyz, .cif, .cube, .molden, .fchk, .hess, "
-        ".zmat, .gbw, .h5/.hdf5/.trexio (TREXIO), and QC inputs from "
-        "Orca, Molcas, Q-Chem, Gaussian, NWChem, Turbomole, Molpro, MRCC, "
-        "CFOUR, Psi4, GAMESS, and Jaguar."
+        ".zmat, .gbw, .h5/.hdf5/.trexio (TREXIO), cclib-supported outputs, "
+        "and QC inputs from Orca, Molcas, Q-Chem, Gaussian, NWChem, Turbomole, "
+        "Molpro, MRCC, CFOUR, Psi4, GAMESS, and Jaguar."
     )
 
 
@@ -1755,6 +1762,13 @@ def run():
             molecule, orbital_data, isosurfaces, current_mo, trexio_toast = (
                 _prepare_trexio_cli_session(filepath)
             )
+        elif filetype == "cclib":
+            from .parsers import load_trajectory_from_cclib
+
+            traj = load_trajectory_from_cclib(filepath)
+            molecule = traj.molecule
+            if len(traj.frames) > 1:
+                trajectory_data = TrajectoryData(frames=traj.frames)
         else:
             molecule = load_molecule(filepath)
 

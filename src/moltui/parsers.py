@@ -1035,6 +1035,46 @@ def parse_zmat_text(text: str) -> Molecule:
     return mol
 
 
+def _parse_cclib_data(filepath: str | Path):
+    try:
+        import cclib
+    except ImportError as exc:
+        raise ImportError(
+            "cclib is required to parse this file format. "
+            "Install it with: pip install 'moltui[cclib]'"
+        ) from exc
+
+    data = cclib.io.ccread(str(filepath))
+    if data is None:
+        raise ValueError(f"cclib could not parse file: {filepath}")
+    return data
+
+
+def _cclib_data_to_molecule(data, frame_index: int) -> Molecule:
+    coords = data.atomcoords[frame_index]
+    atoms = [
+        Atom(
+            element=get_element_by_number(int(data.atomnos[i])),
+            position=coords[i].copy(),
+        )
+        for i in range(data.natom)
+    ]
+    mol = Molecule(atoms=atoms, bonds=[])
+    mol.detect_bonds()
+    return mol
+
+
+def load_molecule_from_cclib(filepath: str | Path) -> Molecule:
+    return _cclib_data_to_molecule(_parse_cclib_data(filepath), frame_index=-1)
+
+
+def load_trajectory_from_cclib(filepath: str | Path) -> XYZTrajectory:
+    data = _parse_cclib_data(filepath)
+    frames = np.array(data.atomcoords, dtype=np.float64)  # (n_frames, n_atoms, 3)
+    mol = _cclib_data_to_molecule(data, frame_index=0)
+    return XYZTrajectory(molecule=mol, frames=frames)
+
+
 def load_molecule(filepath: str | Path) -> Molecule:
     filepath = Path(filepath)
     suffix = filepath.suffix.lower()
@@ -1081,10 +1121,21 @@ def load_molecule(filepath: str | Path) -> Molecule:
             sniffed = sniff_qc_input(filepath)
             if sniffed is not None:
                 return parse_qc_input(filepath, sniffed)
-            raise ValueError(f"Could not identify QC input format from contents of {filepath!s}")
+            try:
+                return load_molecule_from_cclib(filepath)
+            except (ImportError, ValueError) as exc:
+                raise ValueError(
+                    f"Could not identify QC input or cclib-supported output format from "
+                    f"contents of {filepath!s}"
+                ) from exc
+        try:
+            return load_molecule_from_cclib(filepath)
+        except (ImportError, ValueError):
+            pass
         raise ValueError(
             f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, "
-            ".hess, .cif, .gbw, a QC input (Orca, Q-Chem, Gaussian, NWChem, "
-            "Turbomole, Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, or Jaguar), "
-            "or TREXIO (.h5, .hdf5, .trexio; install optional extra: trexio)"
+            ".hess, .cif, .gbw, cclib-supported outputs, a QC input (Orca, "
+            "Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro, MRCC, CFOUR, "
+            "Psi4, GAMESS, or Jaguar), or TREXIO (.h5, .hdf5, .trexio; "
+            "install optional extra: trexio)"
         )

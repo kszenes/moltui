@@ -1763,7 +1763,11 @@ def run():
                 _prepare_trexio_cli_session(filepath)
             )
         elif filetype == "cclib":
-            from .parsers import load_orbital_data_from_cclib, load_trajectory_from_cclib
+            from .parsers import (
+                load_normal_modes_from_cclib,
+                load_orbital_data_from_cclib,
+                load_trajectory_from_cclib,
+            )
 
             traj = load_trajectory_from_cclib(filepath)
             molecule = traj.molecule
@@ -1772,6 +1776,14 @@ def run():
             orbital_data = load_orbital_data_from_cclib(filepath)
             if orbital_data is not None and orbital_data.n_mos > 0:
                 isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
+            hess_data = load_normal_modes_from_cclib(filepath)
+            if hess_data is not None and hess_data.normal_modes is not None:
+                eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])
+                normal_mode_data = NormalModeData(
+                    equilibrium_coords=eq_coords,
+                    mode_vectors=hess_data.normal_modes,
+                    frequencies=hess_data.frequencies,
+                )
         else:
             molecule = load_molecule(filepath)
 

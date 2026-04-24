@@ -353,9 +353,12 @@ class TestLoadMolecule:
         mol = load_molecule(hess_file)
         assert len(mol.atoms) == 3
 
-    def test_unsupported_format_raises(self):
-        with pytest.raises(ValueError, match="Unsupported"):
-            load_molecule(Path("/fake/file.pdb"))
+    def test_unsupported_format_raises(self, tmp_path):
+        # cclib is the fallback; it returns None for formats it can't recognise.
+        unknown = tmp_path / "molecule.unk123"
+        unknown.write_text("garbage")
+        with pytest.raises(ValueError, match="cclib could not parse"):
+            load_molecule(unknown)
 
     def test_gbw_raises(self):
         with pytest.raises(ValueError, match=".gbw"):
@@ -726,5 +729,5 @@ def test_parse_orca_hess_data_includes_normal_modes(tmp_path: Path) -> None:
     assert len(hess_data.molecule.atoms) == 3
     assert hess_data.frequencies is not None
     assert hess_data.normal_modes is not None
-    assert hess_data.frequencies.shape == (9,)
-    assert hess_data.normal_modes.shape == (9, 3, 3)
+    assert hess_data.frequencies.shape == (3,)
+    assert hess_data.normal_modes.shape == (3, 3, 3)

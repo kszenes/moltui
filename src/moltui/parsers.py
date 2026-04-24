@@ -196,6 +196,13 @@ def parse_orca_hess_data(filepath: str | Path) -> HessData:
         if frequencies is not None:
             frequencies = frequencies[: normal_modes.shape[0]]
 
+    if frequencies is not None and normal_modes is not None:
+        nonzero = np.nonzero(frequencies)[0]
+        if len(nonzero) < len(frequencies):
+            first = int(nonzero[0]) if len(nonzero) > 0 else len(frequencies)
+            frequencies = frequencies[first:]
+            normal_modes = normal_modes[first:]
+
     return HessData(
         molecule=molecule,
         frequencies=frequencies,
@@ -1053,7 +1060,12 @@ def _parse_cclib_data(filepath: str | Path):
     parser = cclib.io.ccopen(str(filepath))
     if parser is None:
         raise ValueError(f"cclib could not parse file: {filepath}")
-    data = parser.parse()
+    try:
+        data = parser.parse()
+    except Exception as exc:
+        raise ValueError(
+            f"cclib failed to parse {Path(filepath).name}: {type(exc).__name__}: {exc}"
+        ) from exc
     return data
 
 
@@ -1109,6 +1121,29 @@ def _cclib_detect_spherical(gbasis, nbasis: int) -> dict[int, bool]:
     elif cart_total == nbasis:
         return {l: False for l in shells_by_l}
     return {l: True for l in shells_by_l}  # default to spherical
+
+
+def load_normal_modes_from_cclib(filepath: str | Path) -> HessData | None:
+    """Extract vibrational normal modes from a cclib-supported QC output file.
+
+    Returns None if the file contains no vibrational data.
+    """
+    data = _parse_cclib_data(filepath)
+    if not hasattr(data, "vibfreqs") or not hasattr(data, "vibdisps"):
+        return None
+
+    mol = _cclib_data_to_molecule(data, frame_index=-1)
+    frequencies = np.array(data.vibfreqs, dtype=np.float64)  # (n_modes,)
+    # vibdisps shape: (n_modes, n_atoms, 3) — already in Angstrom
+    normal_modes = np.array(data.vibdisps, dtype=np.float64)
+
+    nonzero = np.nonzero(frequencies)[0]
+    if len(nonzero) < len(frequencies):
+        first = int(nonzero[0]) if len(nonzero) > 0 else len(frequencies)
+        frequencies = frequencies[first:]
+        normal_modes = normal_modes[first:]
+
+    return HessData(molecule=mol, frequencies=frequencies, normal_modes=normal_modes)
 
 
 def load_orbital_data_from_cclib(filepath: str | Path) -> "OrbitalData | None":

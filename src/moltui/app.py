@@ -482,6 +482,8 @@ class MoltuiApp(App):
         self._mo_switch_task: asyncio.Task[None] | None = None
         self.trajectory_data = trajectory_data
         self.normal_mode_data = normal_mode_data
+        if self.normal_mode_data is not None and self.normal_mode_data.mode_vectors.shape[0] > 0:
+            self.normal_mode_data.mode_index = self._first_vibrational_mode_index()
         self._startup_toast: str | None = None
         self._view_mode = _VIEW_GEOMETRY
         self._panel_hidden = False
@@ -1680,6 +1682,7 @@ def run():
 
     try:
         trexio_toast: str | None = None
+        cclib_toast: str | None = None
         cube_data_for_app: CubeData | None = None
         if filetype == "cube":
             cube_data = parse_cube_data(filepath)
@@ -1784,7 +1787,7 @@ def run():
                 load_trajectory_from_cclib,
             )
 
-            traj = load_trajectory_from_cclib(filepath)
+            traj, cclib_result = load_trajectory_from_cclib(filepath)
             molecule = traj.molecule
             if len(traj.frames) > 1:
                 trajectory_data = TrajectoryData(frames=traj.frames)
@@ -1800,6 +1803,10 @@ def run():
                     frequencies=hess_data.frequencies,
                     symmetries=hess_data.symmetries,
                 )
+            if cclib_result.partial:
+                cclib_toast = (
+                    f"cclib parsing error: only {', '.join(cclib_result.available)} extracted"
+                )
         else:
             molecule = load_molecule(filepath)
 
@@ -1813,8 +1820,7 @@ def run():
             normal_mode_data=normal_mode_data,
         )
         app._cube_data = cube_data_for_app
-        if filetype == "trexio":
-            app._startup_toast = trexio_toast
+        app._startup_toast = trexio_toast if filetype == "trexio" else cclib_toast
         app.run()
     except ValueError as exc:
         import sys

@@ -1049,7 +1049,28 @@ def parse_zmat_text(text: str) -> Molecule:
     return mol
 
 
-def _parse_cclib_data(filepath: str | Path):
+class CclibResult:
+    """Wraps cclib parsed data with metadata about parse completeness."""
+
+    def __init__(self, data, partial: bool) -> None:
+        self.data = data
+        self.partial = partial
+
+    @property
+    def available(self) -> list[str]:
+        """Human-readable list of successfully extracted data kinds."""
+        labels = []
+        if hasattr(self.data, "atomcoords") and len(self.data.atomcoords) > 0:
+            kind = "trajectories" if len(self.data.atomcoords) > 1 else "geometries"
+            labels.append(kind)
+        if hasattr(self.data, "vibfreqs") and hasattr(self.data, "vibdisps"):
+            labels.append("normal modes")
+        if hasattr(self.data, "mocoeffs") and hasattr(self.data, "gbasis"):
+            labels.append("orbitals")
+        return labels
+
+
+def _parse_cclib_data(filepath: str | Path) -> CclibResult:
     try:
         import cclib
     except ImportError as exc:
@@ -1061,17 +1082,24 @@ def _parse_cclib_data(filepath: str | Path):
     parser = cclib.io.ccopen(str(filepath))
     if parser is None:
         raise ValueError(f"cclib could not parse file: {filepath}")
+    partial = False
     try:
         data = parser.parse()
     except Exception as exc:
-        raise ValueError(
-            f"cclib failed to parse {Path(filepath).name}: {type(exc).__name__}: {exc}"
-        ) from exc
-    return data
+        # cclib may fail mid-parse but still populate partial attributes
+        # (e.g. atomcoords/atomnos) on the parser object — use those.
+        print(f"cclib failed to fully parse {Path(filepath).name}: {type(exc).__name__}: {exc}")
+        data = parser
+        partial = True
+    if not hasattr(data, "atomcoords") or not hasattr(data, "atomnos"):
+        raise ValueError(f"cclib could not extract any data from: {filepath}")
+    if len(data.atomcoords) == 0:
+        raise ValueError(f"cclib found no coordinates in: {filepath}")
+    return CclibResult(data, partial)
 
 
 def _cclib_data_to_molecule(data, frame_index: int) -> Molecule:
-    coords = data.atomcoords[frame_index]
+    coords = np.asarray(data.atomcoords[frame_index], dtype=np.float64)
     atoms = [
         Atom(
             element=get_element_by_number(int(data.atomnos[i])),
@@ -1085,14 +1113,14 @@ def _cclib_data_to_molecule(data, frame_index: int) -> Molecule:
 
 
 def load_molecule_from_cclib(filepath: str | Path) -> Molecule:
-    return _cclib_data_to_molecule(_parse_cclib_data(filepath), frame_index=-1)
+    return _cclib_data_to_molecule(_parse_cclib_data(filepath).data, frame_index=-1)
 
 
-def load_trajectory_from_cclib(filepath: str | Path) -> XYZTrajectory:
-    data = _parse_cclib_data(filepath)
-    frames = np.array(data.atomcoords, dtype=np.float64)  # (n_frames, n_atoms, 3)
-    mol = _cclib_data_to_molecule(data, frame_index=0)
-    return XYZTrajectory(molecule=mol, frames=frames)
+def load_trajectory_from_cclib(filepath: str | Path) -> tuple[XYZTrajectory, CclibResult]:
+    result = _parse_cclib_data(filepath)
+    frames = np.array(result.data.atomcoords, dtype=np.float64)  # (n_frames, n_atoms, 3)
+    mol = _cclib_data_to_molecule(result.data, frame_index=0)
+    return XYZTrajectory(molecule=mol, frames=frames), result
 
 
 _AM_MAP = {"S": 0, "P": 1, "D": 2, "F": 3, "G": 4}
@@ -1129,7 +1157,7 @@ def load_normal_modes_from_cclib(filepath: str | Path) -> HessData | None:
 
     Returns None if the file contains no vibrational data.
     """
-    data = _parse_cclib_data(filepath)
+    data = _parse_cclib_data(filepath).data
     if not hasattr(data, "vibfreqs") or not hasattr(data, "vibdisps"):
         return None
 
@@ -1157,7 +1185,7 @@ def load_orbital_data_from_cclib(filepath: str | Path) -> "OrbitalData | None":
     from .gto import GtoBasis, PrimShell, _prim_norm
     from .molden import OrbitalData
 
-    data = _parse_cclib_data(filepath)
+    data = _parse_cclib_data(filepath).data
     if not (hasattr(data, "mocoeffs") and hasattr(data, "gbasis")):
         return None
 

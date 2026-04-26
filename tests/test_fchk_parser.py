@@ -121,3 +121,69 @@ def test_normal_modes_match_molden(fchk_module) -> None:
     np.testing.assert_allclose(
         np.abs(fchk_data.normal_modes), np.abs(molden_data.normal_modes), atol=1e-6
     )
+
+
+def test_freqs_from_hessian_match_vib_e2(fchk_module) -> None:
+    """Hessian-derived frequencies must match Gaussian's own Vib-E2 analysis.
+
+    ``peroxide_tsopt.fchk`` contains both ``Cartesian Force Constants`` and the
+    precomputed ``Vib-E2`` frequencies. We force the parser onto the Hessian
+    path (mass-weight, project translations + rotations, diagonalise, convert
+    to cm^-1) and compare against Vib-E2 as ground truth — same molecule, same
+    underlying SCF, so any deviation > a few hundredths of a cm^-1 indicates a
+    bug in mass-weighting, projection, unit conversion, or sign handling.
+    """
+    freqs, _ = fchk_module.compute_freqs_from_hessian(DATA / "peroxide_tsopt.fchk")
+
+    # Read the Vib-E2 oracle the same way the main parser does.
+    fchk_data = fchk_module.load_fchk_data(DATA / "peroxide_tsopt.fchk")
+    expected = fchk_data.mode_frequencies
+    assert expected is not None
+    assert freqs.shape == expected.shape
+    np.testing.assert_allclose(freqs, expected, atol=0.05)
+
+
+def test_modes_from_hessian_match_vib_modes(fchk_module) -> None:
+    """Hessian-derived eigenvectors must agree with Vib-Modes (per-mode cosine).
+
+    Eigenvectors carry an arbitrary sign per mode and, within any degenerate
+    subspace, an arbitrary rotation. ``peroxide_tsopt`` (H2O2 at a TS) has no
+    degeneracies among its 6 modes, so a per-mode |cosine| ≈ 1 is achievable
+    and is the strongest agreement we can expect.
+    """
+    _, modes = fchk_module.compute_freqs_from_hessian(DATA / "peroxide_tsopt.fchk")
+
+    fchk_data = fchk_module.load_fchk_data(DATA / "peroxide_tsopt.fchk")
+    expected = fchk_data._basis.normal_modes
+    assert expected is not None
+    assert modes.shape == expected.shape
+
+    n_modes = modes.shape[0]
+    for k in range(n_modes):
+        a = modes[k].reshape(-1)
+        b = expected[k].reshape(-1)
+        cos = abs(float(a @ b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+        assert cos > 0.999, f"mode {k} cosine {cos:.6f} < 0.999"
+
+
+def test_hessian_only_fchk_uses_fallback(fchk_module) -> None:
+    """``peroxide_irc.fchk`` has no Vib-Modes/Vib-E2 — only the Hessian. The
+    parser should auto-fall-back and produce the same output as calling
+    ``compute_freqs_from_hessian`` directly."""
+    data = fchk_module.load_fchk_data(DATA / "peroxide_irc.fchk")
+    assert data.normal_modes is not None
+    assert data.mode_frequencies is not None
+    assert data.normal_modes.shape[1] == len(data.molecule.atoms)
+    assert np.all(np.isfinite(data.mode_frequencies))
+
+    expected_freqs, expected_modes = fchk_module.compute_freqs_from_hessian(
+        DATA / "peroxide_irc.fchk"
+    )
+    np.testing.assert_allclose(data.mode_frequencies, expected_freqs, atol=0.0)
+    # ``load_fchk_data`` converts modes from Bohr to Å (as for molden); compare
+    # directions via per-mode cosine to dodge that scaling and arbitrary signs.
+    for k in range(expected_freqs.shape[0]):
+        a = data.normal_modes[k].reshape(-1)
+        b = expected_modes[k].reshape(-1)
+        cos = abs(float(a @ b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+        assert cos > 0.9999, f"fallback mode {k} cosine {cos:.6f}"

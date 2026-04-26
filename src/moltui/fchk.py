@@ -255,8 +255,13 @@ def parse_fchk(filepath: str | Path) -> GtoBasis:
         occ[:n_alpha_occ] = 2.0 if n_alpha_occ == n_beta_occ else 1.0
         mo_occupations = occ
 
-    # --- Normal modes (only present after Freq=SaveNormalModes) -------------
+    # --- Normal modes -------------------------------------------------------
+    # Prefer Gaussian's own analysis (Vib-Modes/Vib-E2) when present; otherwise
+    # fall back to diagonalising the Hessian (Cartesian Force Constants) — the
+    # default Freq job writes the Hessian even without SaveNormalModes.
     frequencies, normal_modes = _read_vib_blocks(sections, n_atoms=len(atom_symbols))
+    if normal_modes is None and sections.get("Cartesian Force Constants") is not None:
+        frequencies, normal_modes = _freqs_from_hessian_sections(sections)
 
     return GtoBasis(
         atom_symbols=atom_symbols,
@@ -312,6 +317,105 @@ def _read_vib_blocks(
     frequencies = e2[:n_modes].copy()
     normal_modes = modes.reshape(n_modes, n_atoms, 3).copy()
     return frequencies, normal_modes
+
+
+# 1 sqrt(Hartree / (Bohr^2 * amu)) expressed in cm^-1 (CODATA 2018 derived).
+_HARTREE_BOHR2_AMU_TO_CM1 = 5140.4843
+
+
+def _unpack_lower_triangle(packed: np.ndarray, n: int) -> np.ndarray:
+    """Expand a row-by-row lower-triangle vector to a full symmetric (n, n).
+
+    Gaussian writes ``H[0,0], H[1,0], H[1,1], H[2,0], H[2,1], H[2,2], ...`` —
+    same packing convention as LAPACK's ``L`` packed format.
+    """
+    expected = n * (n + 1) // 2
+    if packed.shape[0] != expected:
+        raise ValueError(f"packed length {packed.shape[0]} != n(n+1)/2 = {expected}")
+    full = np.zeros((n, n), dtype=np.float64)
+    idx = 0
+    for i in range(n):
+        full[i, : i + 1] = packed[idx : idx + i + 1]
+        idx += i + 1
+    return full + full.T - np.diag(np.diag(full))
+
+
+def _trans_rot_basis(coords_bohr: np.ndarray, masses_amu: np.ndarray) -> np.ndarray:
+    """Orthonormal basis (3N, k) for trans+rot in mass-weighted Cartesians.
+
+    ``k`` is 6 for non-linear molecules and 5 for linear ones; the rank is
+    determined by QR (dependent rotation columns get tiny diagonal entries).
+    """
+    n = coords_bohr.shape[0]
+    sqrt_m = np.sqrt(masses_amu)
+    com = (masses_amu[:, None] * coords_bohr).sum(axis=0) / masses_amu.sum()
+    r = coords_bohr - com
+
+    basis = np.zeros((3 * n, 6), dtype=np.float64)
+    for axis in range(3):
+        v = np.zeros((n, 3))
+        v[:, axis] = sqrt_m
+        basis[:, axis] = v.reshape(-1)
+    for axis in range(3):
+        e = np.zeros(3)
+        e[axis] = 1.0
+        v = np.cross(r, e) * sqrt_m[:, None]
+        basis[:, 3 + axis] = v.reshape(-1)
+
+    q, r_qr = np.linalg.qr(basis)
+    keep = np.abs(np.diag(r_qr)) > 1e-8
+    return q[:, keep]
+
+
+def compute_freqs_from_hessian(filepath: str | Path) -> tuple[np.ndarray, np.ndarray]:
+    """Compute vibrational frequencies + Cartesian mode displacements from the
+    ``Cartesian Force Constants`` block alone.
+
+    Returns ``(frequencies_cm1, modes)`` with shapes ``(n_modes,)`` and
+    ``(n_modes, n_atoms, 3)``. Negative frequencies indicate imaginary modes.
+    Independent of any precomputed ``Vib-Modes``/``Vib-E2`` data — exposed so
+    tests can cross-validate against those blocks when both are present.
+    """
+    return _freqs_from_hessian_sections(_read_sections(Path(filepath)))
+
+
+def _freqs_from_hessian_sections(
+    sections: dict[str, _Section],
+) -> tuple[np.ndarray, np.ndarray]:
+    n_atoms = int(_require_scalar(sections, "Number of atoms"))
+    coords = _require_array(sections, "Current cartesian coordinates").reshape(n_atoms, 3)
+    masses = _require_array(sections, "Real atomic weights")
+    hess_packed = _require_array(sections, "Cartesian Force Constants")
+
+    n = 3 * n_atoms
+    H = _unpack_lower_triangle(hess_packed, n)
+
+    sqrt_m_per_dof = np.repeat(np.sqrt(masses), 3)
+    H_mw = H / np.outer(sqrt_m_per_dof, sqrt_m_per_dof)
+
+    tr_basis = _trans_rot_basis(coords, masses)
+    P = np.eye(n) - tr_basis @ tr_basis.T
+    H_proj = P @ H_mw @ P
+
+    eigvals, eigvecs = np.linalg.eigh(H_proj)
+
+    # Drop the 5 or 6 trans/rot eigenvalues — keep the 3N-k modes with the
+    # largest |λ|, then re-sort by signed eigenvalue (negative → imaginary).
+    n_keep = n - tr_basis.shape[1]
+    keep_idx = np.argsort(np.abs(eigvals))[-n_keep:]
+    keep_idx = keep_idx[np.argsort(eigvals[keep_idx])]
+    eigvals = eigvals[keep_idx]
+    eigvecs = eigvecs[:, keep_idx]
+
+    frequencies = np.sign(eigvals) * np.sqrt(np.abs(eigvals)) * _HARTREE_BOHR2_AMU_TO_CM1
+
+    # Un-mass-weight to Cartesian displacements, then renormalise per mode so
+    # that Σ|L|² = 1 (Gaussian's convention for the Vib-Modes block).
+    L_cart = (eigvecs / sqrt_m_per_dof[:, None]).reshape(n_atoms, 3, -1)
+    norms = np.sqrt((L_cart**2).sum(axis=(0, 1)))
+    L_cart = L_cart / norms[None, None, :]
+    modes = np.transpose(L_cart, (2, 0, 1))
+    return frequencies, modes
 
 
 def load_fchk_data(filepath: str | Path) -> OrbitalData:

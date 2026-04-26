@@ -43,7 +43,7 @@ def load_trexio_orbital_data(filepath: str | Path) -> OrbitalData | None:
             with trexio.File(str(path), "r", back_end=backend) as f:
                 if not _trexio_has_mo_basis(f, trexio):
                     return None
-                basis = _trexio_file_to_gto_basis(f, trexio)
+                basis, missing_fields = _trexio_file_to_gto_basis(f, trexio)
     except trexio.Error:
         return None
 
@@ -54,7 +54,10 @@ def load_trexio_orbital_data(filepath: str | Path) -> OrbitalData | None:
     molecule = Molecule(atoms=atoms, bonds=[])
     molecule.detect_bonds()
 
-    return OrbitalData.from_gto_basis(basis, molecule)
+    od = OrbitalData.from_gto_basis(basis, molecule)
+    od.has_mo_energies = "mo_energy" not in missing_fields
+    od.has_mo_occupations = "mo_occupation" not in missing_fields
+    return od
 
 
 def _trexio_has_mo_basis(f, trexio) -> bool:
@@ -89,7 +92,7 @@ def _trexio_has_mo_basis(f, trexio) -> bool:
     return True
 
 
-def _trexio_file_to_gto_basis(f, trexio) -> GtoBasis:
+def _trexio_file_to_gto_basis(f, trexio) -> tuple[GtoBasis, list[str]]:
     n_nucl = int(trexio.read_nucleus_num(f))
     coords_bohr = np.asarray(trexio.read_nucleus_coord(f), dtype=np.float64)
     if coords_bohr.shape != (n_nucl, 3):
@@ -173,9 +176,14 @@ def _trexio_file_to_gto_basis(f, trexio) -> GtoBasis:
         raise ValueError("Internal error: Molden AO permutation length does not match nao.")
     mo_c = mo_c[molden_rows, :]
 
+    missing_fields: list[str] = []
+
+    has_mo_energy = trexio.has_mo_energy(f)
+    if not has_mo_energy:
+        missing_fields.append("mo_energy")
     mo_e = (
         np.asarray(trexio.read_mo_energy(f), dtype=np.float64).reshape(-1)
-        if trexio.has_mo_energy(f)
+        if has_mo_energy
         else np.zeros(nmo, dtype=np.float64)
     )
     if mo_e.size < nmo:
@@ -183,9 +191,12 @@ def _trexio_file_to_gto_basis(f, trexio) -> GtoBasis:
     elif mo_e.size > nmo:
         mo_e = mo_e[:nmo]
 
+    has_mo_occ = trexio.has_mo_occupation(f)
+    if not has_mo_occ:
+        missing_fields.append("mo_occupation")
     mo_occ = (
         np.asarray(trexio.read_mo_occupation(f), dtype=np.float64).reshape(-1)
-        if trexio.has_mo_occupation(f)
+        if has_mo_occ
         else np.zeros(nmo, dtype=np.float64)
     )
     if mo_occ.size < nmo:
@@ -210,7 +221,7 @@ def _trexio_file_to_gto_basis(f, trexio) -> GtoBasis:
     else:
         mo_spins = ["Alpha"] * nmo
 
-    return GtoBasis(
+    basis = GtoBasis(
         atom_symbols=atom_symbols,
         atom_coords_bohr=coords_bohr,
         shells=shells,
@@ -223,3 +234,4 @@ def _trexio_file_to_gto_basis(f, trexio) -> GtoBasis:
         frequencies=None,
         normal_modes=None,
     )
+    return basis, missing_fields

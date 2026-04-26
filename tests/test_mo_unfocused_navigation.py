@@ -49,6 +49,8 @@ async def test_first_n_changes_mo_once_when_table_unfocused() -> None:
         mo_spins=["Alpha", "Alpha"],
         n_mos=2,
         homo_idx=0,
+        has_mo_energies=True,
+        has_mo_occupations=True,
     )
     app = MoltuiApp(
         molecule=orbital_data.molecule,

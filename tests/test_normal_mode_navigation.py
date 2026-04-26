@@ -110,6 +110,8 @@ async def test_m_and_capital_m_cycle_view_modes() -> None:
         mo_spins=["Alpha"],
         n_mos=1,
         homo_idx=0,
+        has_mo_energies=True,
+        has_mo_occupations=True,
     )
 
     app = MoltuiApp(
@@ -229,6 +231,8 @@ async def test_mo_and_normal_mode_views_are_mutually_exclusive() -> None:
         mo_spins=["Alpha"],
         n_mos=1,
         homo_idx=0,
+        has_mo_energies=True,
+        has_mo_occupations=True,
     )
 
     app = MoltuiApp(
@@ -280,6 +284,8 @@ async def test_header_shows_only_active_view_info() -> None:
         mo_spins=["Alpha"],
         n_mos=1,
         homo_idx=0,
+        has_mo_energies=True,
+        has_mo_occupations=True,
     )
 
     app = MoltuiApp(
@@ -321,6 +327,8 @@ async def test_mode_specific_actions_disabled_outside_active_mode() -> None:
         mo_spins=["Alpha"],
         n_mos=1,
         homo_idx=0,
+        has_mo_energies=True,
+        has_mo_occupations=True,
     )
     normal_mode_data = NormalModeData(
         equilibrium_coords=np.array([a.position.copy() for a in atoms]),

@@ -111,6 +111,8 @@ async def test_mo_table_half_page_and_boundary_navigation() -> None:
         mo_spins=["Alpha"] * n_mos,
         n_mos=n_mos,
         homo_idx=19,
+        has_mo_energies=True,
+        has_mo_occupations=True,
     )
     app = MoltuiApp(
         molecule=molecule,

@@ -381,6 +381,7 @@ class MoltuiApp(App):
         self.normal_mode_data = normal_mode_data
         if self.normal_mode_data is not None and self.normal_mode_data.mode_vectors.shape[0] > 0:
             self.normal_mode_data.mode_index = self._first_vibrational_mode_index()
+        self._startup_toast: str | None = None
         self._view_mode = _VIEW_GEOMETRY
         self._panel_hidden = False
         self._playback_timer = None
@@ -414,6 +415,8 @@ class MoltuiApp(App):
                 symmetries=md.mo_symmetries,
                 spins=md.mo_spins,
                 current_mo=self.current_mo,
+                has_energies=md.has_mo_energies,
+                has_occupations=md.has_mo_occupations,
             )
         if self.normal_mode_data is not None:
             mode_panel = self.query_one(NormalModePanel)
@@ -433,6 +436,8 @@ class MoltuiApp(App):
             self._set_view_mode(initial_mode, reveal_panel=True)
         if self._has_trajectory:
             self._start_playback()
+        if self._startup_toast is not None:
+            self.notify(self._startup_toast, severity="warning", timeout=5)
 
     def _panel_is_open(self) -> bool:
         return (
@@ -523,8 +528,6 @@ class MoltuiApp(App):
             and self.orbital_data.n_mos > 0
         ):
             md = self.orbital_data
-            energy = md.mo_energies[self.current_mo]
-            occ = md.mo_occupations[self.current_mo]
             sym = (
                 md.mo_symmetries[self.current_mo] if self.current_mo < len(md.mo_symmetries) else ""
             )
@@ -535,7 +538,16 @@ class MoltuiApp(App):
                 spin = f" {spin_symbol.get(s, s)}"
             mo_str = f"MO {self.current_mo + 1}/{md.n_mos}{spin}"
             sym_str = f" {sym}" if len(set(md.mo_symmetries)) > 1 else ""
-            parts.append(f"{mo_str}{sym_str} E={energy:.5f} occ={occ:.5f}")
+            detail_parts: list[str] = []
+            if md.has_mo_energies:
+                detail_parts.append(f"E={md.mo_energies[self.current_mo]:.5f}")
+            if md.has_mo_occupations:
+                detail_parts.append(f"occ={md.mo_occupations[self.current_mo]:.5f}")
+            detail_str = " ".join(detail_parts)
+            title = f"{mo_str}{sym_str}"
+            if detail_str:
+                title += f" {detail_str}"
+            parts.append(title)
         return " | ".join(parts)
 
     def _update_title(self) -> None:
@@ -1387,17 +1399,25 @@ def _cli_homo_mo_isosurfaces(orbital_data: OrbitalData) -> tuple[list[Isosurface
 
 def _prepare_trexio_cli_session(
     filepath: str | Path,
-) -> tuple[Molecule, OrbitalData | None, list[IsosurfaceMesh], int]:
+) -> tuple[Molecule, OrbitalData | None, list[IsosurfaceMesh], int, str | None]:
     """Load a TREXIO path for the CLI: MO data when present, else geometry only."""
     from .trexio_molden import load_trexio_orbital_data
     from .trexio_support import load_molecule_from_trexio
 
     orbital_data = load_trexio_orbital_data(filepath)
+    toast: str | None = None
     if orbital_data is not None and orbital_data.n_mos > 0:
+        missing = []
+        if not orbital_data.has_mo_energies:
+            missing.append("energies")
+        if not orbital_data.has_mo_occupations:
+            missing.append("occupations")
+        if missing:
+            toast = f"TREXIO file missing MO {', '.join(missing)}"
         surfs, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
-        return orbital_data.molecule, orbital_data, surfs, current_mo
+        return orbital_data.molecule, orbital_data, surfs, current_mo, toast
     mol = load_molecule_from_trexio(filepath)
-    return mol, None, [], 0
+    return mol, None, [], 0, toast
 
 
 def run():
@@ -1445,6 +1465,7 @@ def run():
         filetype = "molden"
 
     try:
+        trexio_toast: str | None = None
         cube_data_for_app: CubeData | None = None
         if filetype == "cube":
             cube_data = parse_cube_data(filepath)
@@ -1480,7 +1501,9 @@ def run():
             molecule = traj.molecule
             trajectory_data = TrajectoryData(frames=traj.frames)
         elif filetype == "trexio":
-            molecule, orbital_data, isosurfaces, current_mo = _prepare_trexio_cli_session(filepath)
+            molecule, orbital_data, isosurfaces, current_mo, trexio_toast = (
+                _prepare_trexio_cli_session(filepath)
+            )
         else:
             molecule = load_molecule(filepath)
 
@@ -1494,6 +1517,8 @@ def run():
             normal_mode_data=normal_mode_data,
         )
         app._cube_data = cube_data_for_app
+        if filetype == "trexio":
+            app._startup_toast = trexio_toast
         app.run()
     except ValueError as exc:
         import sys

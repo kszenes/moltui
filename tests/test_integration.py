@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 DATA = Path(__file__).parent.parent / "data"
-TREXIO_DATA = DATA / "trexio"
+TREXIO_DATA = DATA / "trexio" / "n2_sp"
 BOHR = 0.529177249
 
 

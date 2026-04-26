@@ -22,6 +22,8 @@ class OrbitalData:
     n_mos: int
     homo_idx: int
     _basis: GtoBasis = field(repr=False)
+    has_mo_energies: bool = True
+    has_mo_occupations: bool = True
     mode_frequencies: np.ndarray | None = None  # (n_modes,)
     normal_modes: np.ndarray | None = None  # (n_modes, n_atoms, 3) in Angstrom
     # AO evaluation caches — populated lazily by evaluate_mo, keyed by (grid_shape, padding).

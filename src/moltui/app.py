@@ -1318,6 +1318,8 @@ def _detect_filetype(filepath: str) -> str:
         return "zmat"
     if suffix == ".molden" or name_lower.endswith(".molden.input"):
         return "molden"
+    if suffix in (".fchk", ".fch"):
+        return "fchk"
     if suffix in (".h5", ".hdf5") and path.is_file():
         return "trexio"
     if suffix == ".trexio" and (path.is_file() or path.is_dir()):
@@ -1430,7 +1432,8 @@ def run():
     parser.add_argument(
         "file",
         help=(
-            "molecular structure file (XYZ, Cube, Molden, ORCA .hess, ORCA .gbw, "
+            "molecular structure file (XYZ, Cube, Molden, Gaussian .fchk, "
+            "ORCA .hess, ORCA .gbw, "
             'or TREXIO .h5/.hdf5/.trexio; optional: pip install "moltui[trexio]")'
         ),
     )
@@ -1476,6 +1479,20 @@ def run():
             from .molden import load_molden_data
 
             orbital_data = load_molden_data(filepath)
+            molecule = orbital_data.molecule
+            if orbital_data.normal_modes is not None:
+                eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])
+                normal_mode_data = NormalModeData(
+                    equilibrium_coords=eq_coords,
+                    mode_vectors=orbital_data.normal_modes,
+                    frequencies=orbital_data.mode_frequencies,
+                )
+            if orbital_data.n_mos > 0:
+                isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
+        elif filetype == "fchk":
+            from .fchk import load_fchk_data
+
+            orbital_data = load_fchk_data(filepath)
             molecule = orbital_data.molecule
             if orbital_data.normal_modes is not None:
                 eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])

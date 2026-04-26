@@ -1,6 +1,6 @@
 # MolTUI
 
-**MolTUI** is a terminal molecular viewer for the **XYZ**, **Zmat**, **Molden**, **Gaussian Cube**, **Orca GBW** and **HESS** file format designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
+**MolTUI** is a terminal molecular viewer for the **XYZ**, **Zmat**, **Molden**, **Gaussian Cube**, **Orca GBW** and **HESS**, and **TrexIO** file format designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
 Ideal for **remote SSH sessions** and **lightweight analyses**.
 
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
@@ -87,11 +87,12 @@ Toggle between **light** and **dark** mode with `i`.
 
 ## Supported formats
 
-- **Structures**: **XYZ**, Gaussian **ZMAT**.
-- **Orbitals**: **Molden**, Gaussian **Cube**, Orca **GBW**¹.
+- **Only Structures**: **XYZ**, Gaussian **ZMAT**.
+- **Orbitals**: **Molden**, Gaussian **Cube**, Orca **GBW**¹, **TrexIO**².
 - **Normal Modes**: **Molden**, Orca **HESS**.
 
 ¹ Requires `orca_2mkl` in `PATH`
+² Requires installing `moltui[trexio]`
 
 ## Keybindings
 

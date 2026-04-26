@@ -1,6 +1,6 @@
 # MolTUI
 
-**MolTUI** is a terminal molecular viewer for the **XYZ**, **Zmat**, **Molden**, **Gaussian Cube** and **fchk**, **Orca GBW** and **HESS**, and **TrexIO** file format designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
+**MolTUI** is a terminal molecular viewer for the **XYZ**, **Zmat**, **Molden**, **Gaussian Cube** and **.fchk**, **Orca .gbw** and **.hess**, and **TrexIO** file format designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
 Ideal for **remote SSH sessions** and **lightweight analyses**.
 
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
@@ -29,7 +29,7 @@ The modes consist of **molecular orbitals**, **normal modes** and **geometry** a
 ### Visualize Orbitals
 
 - The **rendering** of orbitals can be toggled via `o`.
-- **Molden** and **GBW** files can contain **multiple molecular orbitals**. **Cycle** through MOs with `n`ext and `p`rev.
+- **Molden** and **.gbw** files can contain **multiple molecular orbitals**. **Cycle** through MOs with `n`ext and `p`rev.
 
 <img width="1512" height="926" alt="image" src="https://github.com/user-attachments/assets/4c1743ba-aff0-4683-92a7-7ebfaa361258" />
 
@@ -87,11 +87,19 @@ Toggle between **light** and **dark** mode with `i`.
 
 ## Supported formats
 
-- **Only Structures**: **XYZ**, Gaussian **ZMAT**.
-- **Orbitals**: **Molden**, Gaussian **Cube**, Gaussian **fchk**, Orca **GBW**¹, **TrexIO**².
-- **Normal Modes**: **Molden**, Orca **HESS**.
+| Format                | Geometry | Orbitals | Normal Modes |
+|-----------------------|:--------:|:--------:|:------------:|
+| **XYZ**               | ✓        |          |              |
+| Gaussian **ZMAT**     | ✓        |          |              |
+| Gaussian **Cube**     | ✓        | ✓        |              |
+| **Molden**            | ✓        | ✓        | ✓            |
+| Gaussian **.fchk**    | ✓        | ✓        | ✓            |
+| Orca **.GBW**¹        | ✓        | ✓        |              |
+| Orca **.hess**        | ✓        |          | ✓            |
+| **TrexIO**²           | ✓        | ✓        |              |
 
 ¹ Requires `orca_2mkl` in `PATH`
+
 ² Requires installing `moltui[trexio]`
 
 ## Keybindings

@@ -155,7 +155,8 @@ Toggle between **light** and **dark** mode with `i`.
 |-----|--------|
 | `q` | **Quit** |
 
-## Limitations
+## Known Issues
 
+- Only up to `g`-shells are implemented as this is the highest orbital shell officially supported by the Molden format.
 - The content is rendered using braille Unicode characters and, therefore, the quality of rendering can depend on the font and terminal emulator. All figures in the repository have been generated using the JetBrains Mono Nerd Font in the Kitty terminal. 
 - The Orca GBW file format is typically incompatible between versions. Therefore, the `orca_2mkl` should ideally be of the same version as the Orca version used to produce the GBW file. Newer version of Orca can try to recover earlier GBW files using the [rescue](https://orca-manual.mpi-muelheim.mpg.de/contents/quickstartguide/troubleshooting.html#using-old-orca-inputs) feature. 

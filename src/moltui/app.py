@@ -1494,6 +1494,13 @@ def run():
 
             orbital_data = load_fchk_data(filepath)
             molecule = orbital_data.molecule
+            if orbital_data.normal_modes is not None:
+                eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])
+                normal_mode_data = NormalModeData(
+                    equilibrium_coords=eq_coords,
+                    mode_vectors=orbital_data.normal_modes,
+                    frequencies=orbital_data.mode_frequencies,
+                )
             if orbital_data.n_mos > 0:
                 isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
         elif filetype == "hess":

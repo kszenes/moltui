@@ -255,6 +255,9 @@ def parse_fchk(filepath: str | Path) -> GtoBasis:
         occ[:n_alpha_occ] = 2.0 if n_alpha_occ == n_beta_occ else 1.0
         mo_occupations = occ
 
+    # --- Normal modes (only present after Freq=SaveNormalModes) -------------
+    frequencies, normal_modes = _read_vib_blocks(sections, n_atoms=len(atom_symbols))
+
     return GtoBasis(
         atom_symbols=atom_symbols,
         atom_coords_bohr=atom_coords,
@@ -265,7 +268,50 @@ def parse_fchk(filepath: str | Path) -> GtoBasis:
         mo_symmetries=["A"] * mo_energies.shape[0],
         mo_spins=mo_spins,
         spherical=spherical,
+        frequencies=frequencies,
+        normal_modes=normal_modes,
     )
+
+
+def _read_vib_blocks(
+    sections: dict[str, _Section], n_atoms: int
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Extract frequencies and normal-mode displacements when present.
+
+    Gaussian writes the Hessian (``Cartesian Force Constants``) by default,
+    but ``Vib-Modes`` and ``Vib-E2`` only appear when the calculation used
+    ``Freq=SaveNormalModes`` (or ``Freq=HPModes``). Hessian-only fchks return
+    ``(None, None)`` here; diagonalising the Hessian is left to a follow-up.
+
+    ``Vib-E2`` is a flat array of 14 scalars per mode (frequency, reduced mass,
+    force constant, IR/Raman intensities, ...). Only the first scalar per mode
+    is meaningful here.
+    """
+    modes_sec = sections.get("Vib-Modes")
+    e2_sec = sections.get("Vib-E2")
+    if modes_sec is None or e2_sec is None:
+        return None, None
+
+    n_modes_sec = sections.get("Number of Normal Modes")
+    if n_modes_sec is None or n_modes_sec.scalar is None:
+        return None, None
+    n_modes = int(n_modes_sec.scalar)  # type: ignore[arg-type]
+
+    e2 = e2_sec.array
+    modes = modes_sec.array
+    if e2 is None or modes is None:
+        return None, None
+    if e2.shape[0] < 14 * n_modes:
+        raise ValueError("Vib-E2 block is shorter than 14 * n_modes")
+    if modes.shape[0] != n_modes * n_atoms * 3:
+        raise ValueError("Vib-Modes length does not match n_modes * n_atoms * 3")
+
+    # Vib-E2 is laid out as 14 contiguous blocks of n_modes (frequencies first,
+    # then reduced masses, force constants, IR/Raman intensities, ...). So the
+    # first n_modes values are the frequencies — not strided every 14th.
+    frequencies = e2[:n_modes].copy()
+    normal_modes = modes.reshape(n_modes, n_atoms, 3).copy()
+    return frequencies, normal_modes
 
 
 def load_fchk_data(filepath: str | Path) -> OrbitalData:
@@ -280,4 +326,19 @@ def load_fchk_data(filepath: str | Path) -> OrbitalData:
     ]
     molecule = Molecule(atoms=atoms, bonds=[])
     molecule.detect_bonds()
-    return OrbitalData.from_gto_basis(basis, molecule)
+
+    normal_modes = None
+    mode_frequencies = None
+    if basis.normal_modes is not None:
+        if basis.normal_modes.shape[1] != len(atoms):
+            raise ValueError("fchk normal modes do not match atom count")
+        normal_modes = basis.normal_modes * BOHR_TO_ANGSTROM
+        if basis.frequencies is not None:
+            mode_frequencies = basis.frequencies[: normal_modes.shape[0]]
+
+    return OrbitalData.from_gto_basis(
+        basis,
+        molecule,
+        mode_frequencies=mode_frequencies,
+        normal_modes=normal_modes,
+    )

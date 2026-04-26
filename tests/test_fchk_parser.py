@@ -95,3 +95,29 @@ def test_mo_values_match_molden_on_grid(stem: str, fchk_module) -> None:
     # coefficients without re-diagonalizing. Use a generous atol because GTO
     # values have wide dynamic range near nuclei.
     np.testing.assert_allclose(fchk_vals, molden_vals, atol=1e-5, rtol=1e-4)
+
+
+def test_normal_modes_match_molden(fchk_module) -> None:
+    """Vib-Modes / Vib-E2 must agree with the cclib-converted molden.
+
+    iodata's molden writer drops ``[FREQ]``/``[FR-NORM-COORD]``; the paired
+    ``peroxide_tsopt.molden`` is therefore produced via cclib instead. Mode
+    eigenvectors carry an arbitrary sign per mode, so we compare absolute
+    values element-wise.
+    """
+    from moltui.molden import load_molden_data
+
+    fchk_data = fchk_module.load_fchk_data(DATA / "peroxide_tsopt.fchk")
+    molden_data = load_molden_data(DATA / "peroxide_tsopt.molden")
+
+    assert fchk_data.normal_modes is not None
+    assert molden_data.normal_modes is not None
+    assert fchk_data.mode_frequencies is not None
+    assert molden_data.mode_frequencies is not None
+
+    np.testing.assert_allclose(fchk_data.mode_frequencies, molden_data.mode_frequencies, atol=1e-3)
+
+    assert fchk_data.normal_modes.shape == molden_data.normal_modes.shape
+    np.testing.assert_allclose(
+        np.abs(fchk_data.normal_modes), np.abs(molden_data.normal_modes), atol=1e-6
+    )

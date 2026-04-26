@@ -485,6 +485,10 @@ def load_molecule(filepath: str | Path) -> Molecule:
         from .molden import parse_molden_atoms
 
         return parse_molden_atoms(filepath)
+    elif suffix in (".fchk", ".fch"):
+        from .fchk import parse_fchk_atoms
+
+        return parse_fchk_atoms(filepath)
     elif suffix == ".hess":
         return parse_orca_hess_data(filepath).molecule
     elif suffix in (".zmat", ".zmatrix"):

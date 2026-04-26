@@ -2,7 +2,7 @@
 
 ## [v0.4.0] - 2026-04-26
 
-- Add support for TREXIO files (geometry and MOs)
+- Add support for TREXIO files (geometry and MOs) (closed [#10](https://github.com/kszenes/moltui/issues/10))
 - Improve AO construction caching for faster rendering
 - Add integration tests for parsing
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## [v0.4.0] - 2026-04-26
+
+- Add support for TREXIO files (geometry and MOs)
+- Improve AO construction caching for faster rendering
+- Add integration tests for parsing
+
 ## [v0.3.7] - 2026-04-23
 
 - Add animation speed slider (contributed by [@Dpgibney](https://github.com/Dpgibney) in [#11](https://github.com/kszenes/moltui/pull/11))

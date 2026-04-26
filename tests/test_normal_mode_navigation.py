@@ -431,7 +431,7 @@ async def test_brackets_and_space_control_multixyz_frames_in_geometry_mode() -> 
 
         panel = app.query_one(GeometryPanel)
         bond_table = panel.query_one("#bonds-table", DataTable)
-        initial_length = bond_table.get_cell_at(Coordinate(0, 2))
+        initial_length = bond_table.get_cell_at(Coordinate(0, 2)).strip()
 
         assert app.check_action("next_animation_step", tuple()) is True
         assert app.check_action("prev_animation_step", tuple()) is True
@@ -441,7 +441,7 @@ async def test_brackets_and_space_control_multixyz_frames_in_geometry_mode() -> 
         await pilot.pause()
         assert app.trajectory_data is not None
         assert app.trajectory_data.frame_index == 1
-        updated_length = bond_table.get_cell_at(Coordinate(0, 2))
+        updated_length = bond_table.get_cell_at(Coordinate(0, 2)).strip()
         assert updated_length != initial_length
         assert updated_length == "0.8000"
 

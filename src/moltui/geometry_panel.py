@@ -105,7 +105,8 @@ class GeometryPanel(Widget):
     def _atom_label(self, idx: int) -> str:
         if self._molecule is None:
             return str(idx + 1)
-        return f"{idx + 1}:{self._molecule.atoms[idx].element.symbol}"
+        width = len(str(len(self._molecule.atoms)))
+        return f"{idx + 1:>{width}}:{self._molecule.atoms[idx].element.symbol}"
 
     def _table_for_tab(self, tab_id: str) -> DataTable:
         table_id = {
@@ -150,7 +151,7 @@ class GeometryPanel(Widget):
             table.add_row(
                 self._atom_label(i),
                 self._atom_label(j),
-                f"{dist:.4f}",
+                f"{dist:>8.4f}",
                 key=f"{i}-{j}",
             )
         self._restore_cursor(table, selected_row_keys.get("tab-bonds"))
@@ -167,7 +168,7 @@ class GeometryPanel(Widget):
                 self._atom_label(i),
                 self._atom_label(j),
                 self._atom_label(k),
-                f"{angle:.3f}",
+                f"{angle:>8.3f}",
                 key=f"{i}-{j}-{k}",
             )
         self._restore_cursor(table, selected_row_keys.get("tab-angles"))
@@ -185,7 +186,7 @@ class GeometryPanel(Widget):
                 self._atom_label(j),
                 self._atom_label(k),
                 self._atom_label(l),
-                f"{angle:.3f}",
+                f"{angle:>8.3f}",
                 key=f"{i}-{j}-{k}-{l}",
             )
         self._restore_cursor(table, selected_row_keys.get("tab-dihedrals"))

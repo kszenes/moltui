@@ -50,6 +50,22 @@ _BRAILLE_MAP = np.array(
     dtype=np.uint8,
 )
 _ZERO_MODE_FREQ_TOL_CM1 = 10.0
+
+
+def _filter_rigid_body_modes(
+    mode_vectors: np.ndarray,
+    frequencies: np.ndarray | None,
+    threshold_cm1: float = _ZERO_MODE_FREQ_TOL_CM1,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Drop translational/rotational modes (|freq| below threshold)."""
+    if frequencies is None or len(frequencies) == 0:
+        return mode_vectors, frequencies
+    keep = np.abs(np.asarray(frequencies, dtype=np.float64)) >= threshold_cm1
+    if keep.all():
+        return mode_vectors, frequencies
+    return mode_vectors[keep], frequencies[keep]
+
+
 _VIEW_GEOMETRY = "geometry"
 _VIEW_MO = "mo"
 _VIEW_NORMAL = "normal"
@@ -379,8 +395,6 @@ class MoltuiApp(App):
         self._mo_switch_task: asyncio.Task[None] | None = None
         self.trajectory_data = trajectory_data
         self.normal_mode_data = normal_mode_data
-        if self.normal_mode_data is not None and self.normal_mode_data.mode_vectors.shape[0] > 0:
-            self.normal_mode_data.mode_index = self._first_vibrational_mode_index()
         self._startup_toast: str | None = None
         self._view_mode = _VIEW_GEOMETRY
         self._panel_hidden = False
@@ -591,49 +605,6 @@ class MoltuiApp(App):
 
     def _has_animation(self) -> bool:
         return self._has_normal_modes or self._has_trajectory
-
-    def _is_linear_molecule(self) -> bool:
-        coords = np.array([atom.position for atom in self.molecule.atoms], dtype=np.float64)
-        if coords.shape[0] <= 2:
-            return True
-        centered = coords - coords.mean(axis=0)
-        ref_idx = None
-        for i in range(centered.shape[0]):
-            if np.linalg.norm(centered[i]) > 1e-8:
-                ref_idx = i
-                break
-        if ref_idx is None:
-            return True
-        ref = centered[ref_idx]
-        for i in range(centered.shape[0]):
-            if i == ref_idx:
-                continue
-            if np.linalg.norm(np.cross(ref, centered[i])) > 1e-6:
-                return False
-        return True
-
-    def _first_vibrational_mode_index(self) -> int:
-        if self.normal_mode_data is None:
-            return 0
-        n_atoms = len(self.molecule.atoms)
-        if n_atoms <= 1:
-            return 0
-        n_modes = self.normal_mode_data.mode_vectors.shape[0]
-        if n_modes <= 1:
-            return 0
-
-        expected_zero_modes = 5 if self._is_linear_molecule() else 6
-        freqs = self.normal_mode_data.frequencies
-
-        # If frequencies are available, only skip rigid-body modes when the file
-        # actually appears to include them at the beginning.
-        if freqs is not None and len(freqs) >= expected_zero_modes:
-            leading = np.asarray(freqs[:expected_zero_modes], dtype=np.float64)
-            if np.all(np.abs(leading) < _ZERO_MODE_FREQ_TOL_CM1):
-                return min(expected_zero_modes, n_modes - 1)
-
-        # Many Molden writers store only vibrational modes (already trimmed).
-        return 0
 
     def _apply_active_animation_geometry(self) -> None:
         recompute_bonds = False
@@ -1479,10 +1450,13 @@ def run():
             molecule = orbital_data.molecule
             if orbital_data.normal_modes is not None:
                 eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])
+                vib_modes, vib_freqs = _filter_rigid_body_modes(
+                    orbital_data.normal_modes, orbital_data.mode_frequencies
+                )
                 normal_mode_data = NormalModeData(
                     equilibrium_coords=eq_coords,
-                    mode_vectors=orbital_data.normal_modes,
-                    frequencies=orbital_data.mode_frequencies,
+                    mode_vectors=vib_modes,
+                    frequencies=vib_freqs,
                 )
             if orbital_data.n_mos > 0:
                 isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
@@ -1491,10 +1465,13 @@ def run():
             molecule = hess_data.molecule
             if hess_data.normal_modes is not None:
                 eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])
+                vib_modes, vib_freqs = _filter_rigid_body_modes(
+                    hess_data.normal_modes, hess_data.frequencies
+                )
                 normal_mode_data = NormalModeData(
                     equilibrium_coords=eq_coords,
-                    mode_vectors=hess_data.normal_modes,
-                    frequencies=hess_data.frequencies,
+                    mode_vectors=vib_modes,
+                    frequencies=vib_freqs,
                 )
         elif filetype == "xyz":
             traj = parse_xyz_trajectory(filepath)

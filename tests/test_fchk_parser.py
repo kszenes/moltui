@@ -1,13 +1,13 @@
 """Equivalence tests for the Gaussian formatted-checkpoint parser.
 
-Each fchk in ``data/gaussian/`` has a sibling ``.molden`` produced by
-``iodata.dump_one``. The parsers should agree on geometry, MO energies, and the
-value of each MO at arbitrary points in space.
+Each fchk in ``data/gaussian/`` has a sibling ``.molden`` (see that directory's
+README for provenance). The parsers should agree on geometry, MO energies, and
+the value of each MO at arbitrary points in space.
 
 Comparing on a grid (rather than coefficient-by-coefficient) is the right
-abstraction because the two formats use different AO orderings and the
-generalized SP shells in STO-3G fchk files are split into segmented S+P shells
-when iodata writes the molden. Only the *physical* MO ought to match.
+abstraction because the two formats use different AO orderings and any
+generalized contractions in the fchk get split into segmented shells in the
+molden. Only the *physical* MO ought to match.
 """
 
 from __future__ import annotations
@@ -70,7 +70,6 @@ def test_mo_energies_match_molden(stem: str, fchk_module) -> None:
     fchk_data = fchk_module.load_fchk_data(DATA / f"{stem}.fchk")
     molden_data = load_molden_data(DATA / f"{stem}.molden")
 
-    # iodata writes all MOs; both must agree element-wise.
     assert fchk_data.mo_energies.shape == molden_data.mo_energies.shape
     np.testing.assert_allclose(fchk_data.mo_energies, molden_data.mo_energies, atol=1e-6)
 
@@ -90,19 +89,16 @@ def test_mo_values_match_molden_on_grid(stem: str, fchk_module) -> None:
     molden_vals = _eval_basis_on_points(molden_data._basis, points)
 
     assert fchk_vals.shape == molden_vals.shape
-    # MOs from iodata round-trip should agree with the fchk source up to float
-    # precision — no per-MO sign flip, no permutation, since iodata copies the
-    # coefficients without re-diagonalizing. Use a generous atol because GTO
-    # values have wide dynamic range near nuclei.
+    # MOs in the paired molden are the same coefficients as in the fchk (no
+    # re-diagonalisation), so they should agree element-wise up to float
+    # precision. atol stays loose because GTO values vary wildly near nuclei.
     np.testing.assert_allclose(fchk_vals, molden_vals, atol=1e-5, rtol=1e-4)
 
 
 def test_normal_modes_match_molden(fchk_module) -> None:
-    """Vib-Modes / Vib-E2 must agree with the cclib-converted molden.
+    """Vib-Modes / Vib-E2 must agree with the paired molden's freq sections.
 
-    iodata's molden writer drops ``[FREQ]``/``[FR-NORM-COORD]``; the paired
-    ``peroxide_tsopt.molden`` is therefore produced via cclib instead. Mode
-    eigenvectors carry an arbitrary sign per mode, so we compare absolute
+    Mode eigenvectors carry an arbitrary sign per mode, so we compare absolute
     values element-wise.
     """
     from moltui.molden import load_molden_data

@@ -1228,6 +1228,14 @@ def load_orbital_data_from_cclib(filepath: str | Path) -> "OrbitalData | None":
     mo_symmetries = list(data.mosyms[0]) if hasattr(data, "mosyms") else [""] * data.nmo
     mo_spins = ["Alpha"] * data.nmo
 
+    # ORCA with symmetry groups MOs by irrep rather than by energy — sort all
+    # MO arrays by energy so the ordering is consistent regardless of symmetry.
+    order = np.argsort(mo_energies)
+    mo_energies = mo_energies[order]
+    mo_occupations = mo_occupations[order]
+    mo_coefficients = mo_coefficients[:, order]
+    mo_symmetries = [mo_symmetries[i] for i in order]
+
     mol = _cclib_data_to_molecule(data, frame_index=-1)
     basis = GtoBasis(
         atom_symbols=atom_symbols,

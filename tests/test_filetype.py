@@ -28,6 +28,11 @@ class TestDetectFiletype:
         path.write_text("comment 1\ncomment 2\n2 0.0 0.0 0.0\n")
         assert _detect_filetype(str(path)) == "cube"
 
+    def test_com_gjf_detected(self, tmp_path: Path) -> None:
+        com = tmp_path / "x.com"
+        com.write_text("%mem=60GB\n#p b3lyp/6-31g\n\ntest\n\n0 1\nH 0 0 0\n\n")
+        assert _detect_filetype(str(com)) == "com"
+
     def test_gbw_by_extension(self):
         # .gbw detection is by extension, doesn't read content
         path = Path("fake.gbw")

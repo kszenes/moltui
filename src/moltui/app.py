@@ -1324,6 +1324,8 @@ def _detect_filetype(filepath: str) -> str:
         return "trexio"
     if suffix == ".trexio" and (path.is_file() or path.is_dir()):
         return "trexio"
+    if suffix in (".com", ".gjf") and path.is_file():
+        return "com"
     if path.is_dir():
         from .trexio_support import is_readable_trexio_text_directory
 

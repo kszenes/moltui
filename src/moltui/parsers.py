@@ -194,6 +194,39 @@ def parse_orca_hess_data(filepath: str | Path) -> HessData:
         normal_modes=normal_modes,
     )
 
+def parse_com_file(filepath: str | Path) -> Molecule:
+    block = 0
+    atoms: list[Atom] = []
+
+    with open(filepath) as f:
+        for line in f:
+            line = line.strip()
+            if not line: # Skip route section, title and info after molecule
+                block += 1
+            elif block == 2:
+                parts = line.split()
+                try:
+                    charge = int(parts[0])
+                    multiplicity = int(parts[1])
+                except (IndexError, ValueError) as exc:
+                    raise ValueError("Invalid COM file charge/multiplicity line") from exc
+                block = 3
+            elif block == 3:
+                parts = line.split()
+                if len(parts) < 4:
+                    raise ValueError("Invalid COM file atom line; expected: <symbol> <x> <y> <z>")
+                symbol = parts[0]
+                x = _parse_float(parts[1])
+                y = _parse_float(parts[2])
+                z = _parse_float(parts[3])
+                atoms.append(Atom(element=get_element(symbol), position=np.array([x, y, z])))
+
+    if not atoms:
+        raise ValueError("No atoms found in COM file")
+
+    mol = Molecule(atoms=atoms, bonds=[])
+    mol.detect_bonds()
+    return mol
 
 def parse_xyz(filepath: str | Path) -> Molecule:
     return parse_xyz_trajectory(filepath).molecule
@@ -479,6 +512,8 @@ def load_molecule(filepath: str | Path) -> Molecule:
     suffix = filepath.suffix.lower()
     if suffix == ".xyz":
         return parse_xyz(filepath)
+    elif suffix in (".com", ".gjf"):
+        return parse_com_file(filepath)
     elif suffix == ".cube":
         return parse_cube(filepath)
     elif suffix == ".molden":

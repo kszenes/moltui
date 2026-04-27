@@ -10,6 +10,7 @@ import pytest
 
 from moltui.parsers import (
     load_molecule,
+    parse_com_file,
     parse_cube_data,
     parse_orca_hess_data,
     parse_xyz,
@@ -77,6 +78,13 @@ def _write_orca_hess(tmp_path: Path, name: str = "sample.hess") -> Path:
                 "",
             ]
         )
+    )
+    return path
+
+def _write_com(tmp_path: Path, name: str = "x.com") -> Path:
+    path = tmp_path / name
+    path.write_text(
+        "%mem=60GB\n#p b3lyp/6-31g\n\ntest\n\n0 1\nH 0 0 0\n\n"
     )
     return path
 
@@ -231,6 +239,11 @@ class TestLoadMolecule:
     def test_gbw_raises(self):
         with pytest.raises(ValueError, match=".gbw"):
             load_molecule(Path("/fake/file.gbw"))
+
+    def test_com_dispatch(self, tmp_path: Path) -> None:
+        com = _write_com(tmp_path)
+        mol = load_molecule(com)
+        assert len(mol.atoms) == 1
 
 
 # --- Smoke test: load all example XYZ files ---

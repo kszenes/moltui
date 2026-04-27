@@ -204,7 +204,7 @@ def _trexio_file_to_gto_basis(f, trexio) -> tuple[GtoBasis, list[str]]:
     elif mo_occ.size > nmo:
         mo_occ = mo_occ[:nmo]
     if trexio.has_mo_symmetry(f):
-        mo_sym = [str(x) for x in trexio.read_mo_symmetry(f)]
+        mo_sym = [str(x).strip() for x in trexio.read_mo_symmetry(f)]
         if len(mo_sym) < nmo:
             mo_sym = mo_sym + ["A"] * (nmo - len(mo_sym))
         elif len(mo_sym) > nmo:

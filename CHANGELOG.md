@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.4.2] - 2026-04-28
+
+- Fix Windows spurious line break characters (contributed by [scohenjanes5](https://github.com/scohenjanes5) in [#14](https://github.com/kszenes/moltui/pull/14))
+
 ## [v0.4.1] - 2026-04-26
 
 - Adds Gaussian `.fchk` support for geometries, MOs and normal modes

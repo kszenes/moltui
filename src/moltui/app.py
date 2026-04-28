@@ -1209,7 +1209,9 @@ class MoltuiApp(App):
         self._apply_active_animation_geometry()
 
     def on_geometry_panel_highlight_atoms(self, event: GeometryPanel.HighlightAtoms) -> None:
-        view = self.query_one(MoleculeView)
+        view = self._query_molecule_view()
+        if view is None:
+            return
         view.highlighted_atoms = set(event.atom_indices)
         view._invalidate_cache()
 

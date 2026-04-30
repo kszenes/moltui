@@ -368,7 +368,10 @@ def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
         for i, symbol in enumerate(symbols_ref)
     ]
     mol = Molecule(atoms=atoms, bonds=[], lattice=lattice)
-    mol.detect_bonds()
+    if lattice is not None:
+        mol.detect_bonds_periodic()
+    else:
+        mol.detect_bonds()
     return XYZTrajectory(molecule=mol, frames=np.stack(frames, axis=0), lattice=lattice)
 
 

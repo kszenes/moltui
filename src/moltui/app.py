@@ -883,8 +883,11 @@ class MoltuiApp(App):
             display_mol, parents = self._build_display_molecule()
         elif self.molecule is not None and self.molecule.lattice is not None:
             # Replication off: show only in-cell bonds (shift (0,0,0)).
-            shifts = self.molecule.bond_shifts or []
-            in_cell = [bond for bond, s in zip(self.molecule.bonds, shifts) if s == (0, 0, 0)]
+            shifts = self.molecule.bond_shifts
+            if shifts is None:
+                in_cell = list(self.molecule.bonds)
+            else:
+                in_cell = [bond for bond, s in zip(self.molecule.bonds, shifts) if s == (0, 0, 0)]
             display_mol = Molecule(
                 atoms=self.molecule.atoms,
                 bonds=in_cell,

@@ -234,3 +234,107 @@ class TestDetectBonds:
         )
         mol.detect_bonds()
         assert len(mol.bonds) == 1
+
+
+class TestPeriodicImages:
+    def test_no_lattice_returns_self(self):
+        H = get_element("H")
+        mol = Molecule(atoms=[Atom(H, np.array([0.0, 0.0, 0.0]))], bonds=[])
+        assert mol.with_periodic_images() is mol
+
+    def test_corner_atom_replicates_to_8(self):
+        H = get_element("H")
+        lattice = np.eye(3) * 4.0
+        mol = Molecule(
+            atoms=[Atom(H, np.array([0.0, 0.0, 0.0]))],
+            bonds=[],
+            lattice=lattice,
+        )
+        replicated = mol.with_periodic_images()
+        assert len(replicated.atoms) == 8
+
+    def test_face_atom_replicates_to_2(self):
+        H = get_element("H")
+        lattice = np.eye(3) * 4.0
+        mol = Molecule(
+            atoms=[Atom(H, np.array([0.0, 2.0, 2.0]))],
+            bonds=[],
+            lattice=lattice,
+        )
+        replicated = mol.with_periodic_images()
+        assert len(replicated.atoms) == 2
+
+    def test_interior_atom_unchanged(self):
+        H = get_element("H")
+        lattice = np.eye(3) * 4.0
+        mol = Molecule(
+            atoms=[Atom(H, np.array([2.0, 2.0, 2.0]))],
+            bonds=[],
+            lattice=lattice,
+        )
+        replicated = mol.with_periodic_images()
+        assert len(replicated.atoms) == 1
+
+    def test_lattice_preserved(self):
+        H = get_element("H")
+        lattice = np.eye(3) * 4.0
+        mol = Molecule(
+            atoms=[Atom(H, np.array([0.0, 2.0, 2.0]))],
+            bonds=[],
+            lattice=lattice,
+        )
+        replicated = mol.with_periodic_images()
+        np.testing.assert_array_equal(replicated.lattice, lattice)
+
+
+class TestSupercell:
+    def test_no_lattice_returns_self(self):
+        H = get_element("H")
+        mol = Molecule(atoms=[Atom(H, np.array([0.0, 0.0, 0.0]))], bonds=[])
+        assert mol.supercell(2, 2, 2) is mol
+
+    def test_unit_dims_returns_self(self):
+        H = get_element("H")
+        mol = Molecule(
+            atoms=[Atom(H, np.array([1.0, 1.0, 1.0]))],
+            bonds=[],
+            lattice=np.eye(3) * 4.0,
+        )
+        assert mol.supercell(1, 1, 1) is mol
+
+    def test_2x1x1_doubles_atoms_and_a_axis(self):
+        H = get_element("H")
+        mol = Molecule(
+            atoms=[Atom(H, np.array([1.0, 1.0, 1.0]))],
+            bonds=[],
+            lattice=np.eye(3) * 4.0,
+        )
+        sc = mol.supercell(2, 1, 1)
+        assert len(sc.atoms) == 2
+        np.testing.assert_array_equal(sc.atoms[0].position, [1.0, 1.0, 1.0])
+        np.testing.assert_array_equal(sc.atoms[1].position, [5.0, 1.0, 1.0])
+        np.testing.assert_array_equal(sc.lattice[0], [8.0, 0.0, 0.0])
+        np.testing.assert_array_equal(sc.lattice[1], [0.0, 4.0, 0.0])
+
+    def test_2x2x2_count(self):
+        H = get_element("H")
+        mol = Molecule(
+            atoms=[
+                Atom(H, np.array([1.0, 1.0, 1.0])),
+                Atom(H, np.array([2.0, 2.0, 2.0])),
+            ],
+            bonds=[],
+            lattice=np.eye(3) * 4.0,
+        )
+        sc = mol.supercell(2, 2, 2)
+        assert len(sc.atoms) == 16
+
+    def test_invalid_dims_raises(self):
+        H = get_element("H")
+        mol = Molecule(
+            atoms=[Atom(H, np.array([0.0, 0.0, 0.0]))],
+            bonds=[],
+            lattice=np.eye(3),
+        )
+        with pytest.raises(ValueError, match=">= 1"):
+            mol.supercell(0, 1, 1)

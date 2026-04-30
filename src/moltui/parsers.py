@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .elements import Atom, Molecule, get_element, get_element_by_number
+from .elements import Atom, Element, Molecule, get_element, get_element_by_number
 
 BOHR_TO_ANGSTROM = 0.529177249
 
@@ -21,6 +21,7 @@ class CubeData:
 class XYZTrajectory:
     molecule: Molecule
     frames: np.ndarray  # (n_frames, n_atoms, 3) in Angstrom
+    lattice: np.ndarray | None = None  # (3, 3) in Angstrom, or None
 
 
 @dataclass
@@ -199,6 +200,99 @@ def parse_xyz(filepath: str | Path) -> Molecule:
     return parse_xyz_trajectory(filepath).molecule
 
 
+def _parse_xyz_comment_metadata(line: str) -> dict[str, str]:
+    """Parse `key=value` pairs from an extended-XYZ comment line.
+
+    Handles double-quoted values containing spaces (e.g. `Lattice="..."`) and
+    bare values (e.g. `energy=-15.5`). Returns an empty dict for plain XYZ
+    comments with no `=`.
+    """
+    result: dict[str, str] = {}
+    s = line.rstrip("\n").rstrip("\r")
+    n = len(s)
+    i = 0
+    while i < n:
+        while i < n and s[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        # Read key up to '='
+        key_start = i
+        while i < n and s[i] != "=" and not s[i].isspace():
+            i += 1
+        if i >= n or s[i] != "=":
+            # Token without '=' — skip; not a metadata pair.
+            while i < n and not s[i].isspace():
+                i += 1
+            continue
+        key = s[key_start:i]
+        i += 1  # consume '='
+        if i < n and s[i] == '"':
+            i += 1
+            val_start = i
+            while i < n and s[i] != '"':
+                i += 1
+            value = s[val_start:i]
+            if i < n:
+                i += 1  # consume closing '"'
+        else:
+            val_start = i
+            while i < n and not s[i].isspace():
+                i += 1
+            value = s[val_start:i]
+        if key:
+            result[key] = value
+    return result
+
+
+def _parse_lattice(value: str) -> np.ndarray:
+    parts = value.split()
+    if len(parts) != 9:
+        raise ValueError(f"Lattice must contain 9 floats, got {len(parts)}: {value!r}")
+    return np.array([float(p) for p in parts], dtype=np.float64).reshape(3, 3)
+
+
+def _parse_properties_spec(value: str) -> tuple[int, int]:
+    """Parse a Properties=... spec into (species_col, pos_col).
+
+    Returns 0-based column indices for the species token and the first of the
+    three position tokens. Raises ValueError if species or pos cannot be
+    located.
+    """
+    triples = value.split(":")
+    if len(triples) % 3 != 0:
+        raise ValueError(f"Malformed Properties spec: {value!r}")
+
+    species_col: int | None = None
+    pos_col: int | None = None
+    col = 0
+    for k in range(0, len(triples), 3):
+        name = triples[k]
+        type_code = triples[k + 1]
+        try:
+            count = int(triples[k + 2])
+        except ValueError as exc:
+            raise ValueError(f"Malformed Properties spec: {value!r}") from exc
+        if name in ("species", "Z") and count == 1 and type_code in ("S", "I"):
+            species_col = col
+        elif name == "pos" and count == 3 and type_code == "R":
+            pos_col = col
+        col += count
+
+    if species_col is None or pos_col is None:
+        raise ValueError(f"Properties spec missing species or pos field: {value!r}")
+    return species_col, pos_col
+
+
+def _resolve_species(token: str) -> Element:
+    """Resolve an atom token (element symbol or atomic number) to an Element."""
+    try:
+        z = int(token)
+    except ValueError:
+        return get_element(token)
+    return get_element_by_number(z)
+
+
 def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
     filepath = Path(filepath)
     with open(filepath) as f:
@@ -206,6 +300,10 @@ def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
 
     frames: list[np.ndarray] = []
     symbols_ref: list[str] | None = None
+    lattice: np.ndarray | None = None
+    species_col = 0
+    pos_col = 1
+    is_first_frame = True
     idx = 0
     while idx < len(lines):
         while idx < len(lines) and not lines[idx].strip():
@@ -217,19 +315,38 @@ def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
             n_atoms = int(lines[idx].strip())
         except ValueError as exc:
             raise ValueError(f"Invalid XYZ frame header at line {idx + 1}") from exc
+        comment_idx = idx + 1
         frame_start = idx + 2
         frame_end = frame_start + n_atoms
         if frame_end > len(lines):
             raise ValueError("Unexpected end of XYZ file while reading frame atoms")
 
+        if is_first_frame:
+            comment_line = lines[comment_idx] if comment_idx < len(lines) else ""
+            metadata = _parse_xyz_comment_metadata(comment_line)
+            if "Lattice" in metadata:
+                lattice = _parse_lattice(metadata["Lattice"])
+            if "Properties" in metadata:
+                species_col, pos_col = _parse_properties_spec(metadata["Properties"])
+            is_first_frame = False
+
         frame_symbols: list[str] = []
         frame_coords: list[list[float]] = []
+        min_cols = max(species_col, pos_col + 2) + 1
         for line in lines[frame_start:frame_end]:
             parts = line.split()
-            if len(parts) < 4:
-                raise ValueError("Invalid XYZ atom line; expected: <symbol> <x> <y> <z>")
-            frame_symbols.append(parts[0])
-            frame_coords.append([float(parts[1]), float(parts[2]), float(parts[3])])
+            if len(parts) < min_cols:
+                raise ValueError(
+                    f"Invalid XYZ atom line; expected at least {min_cols} columns: {line!r}"
+                )
+            frame_symbols.append(parts[species_col])
+            frame_coords.append(
+                [
+                    float(parts[pos_col]),
+                    float(parts[pos_col + 1]),
+                    float(parts[pos_col + 2]),
+                ]
+            )
 
         if symbols_ref is None:
             symbols_ref = frame_symbols
@@ -247,12 +364,248 @@ def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
 
     first_frame = frames[0]
     atoms = [
-        Atom(element=get_element(symbol), position=first_frame[i].copy())
+        Atom(element=_resolve_species(symbol), position=first_frame[i].copy())
         for i, symbol in enumerate(symbols_ref)
     ]
-    mol = Molecule(atoms=atoms, bonds=[])
+    mol = Molecule(atoms=atoms, bonds=[], lattice=lattice)
     mol.detect_bonds()
-    return XYZTrajectory(molecule=mol, frames=np.stack(frames, axis=0))
+    return XYZTrajectory(molecule=mol, frames=np.stack(frames, axis=0), lattice=lattice)
+
+
+def _cif_fractional_to_cartesian_matrix(
+    a: float, b: float, c: float, alpha: float, beta: float, gamma: float
+) -> np.ndarray:
+    """Build M such that cart = frac @ M (rows are lattice vectors)."""
+    alpha_r = np.radians(alpha)
+    beta_r = np.radians(beta)
+    gamma_r = np.radians(gamma)
+    cos_a, cos_b, cos_g = np.cos(alpha_r), np.cos(beta_r), np.cos(gamma_r)
+    sin_g = np.sin(gamma_r)
+
+    bx = b * cos_g
+    by = b * sin_g
+    cx = c * cos_b
+    cy = c * (cos_a - cos_b * cos_g) / sin_g
+    cz_sq = c * c - cx * cx - cy * cy
+    cz = np.sqrt(max(cz_sq, 0.0))
+    return np.array([[a, 0.0, 0.0], [bx, by, 0.0], [cx, cy, cz]], dtype=np.float64)
+
+
+def _strip_cif_value(token: str) -> str:
+    """Strip CIF uncertainty parens and surrounding quotes."""
+    token = token.strip()
+    if (token.startswith("'") and token.endswith("'")) or (
+        token.startswith('"') and token.endswith('"')
+    ):
+        token = token[1:-1]
+    paren = token.find("(")
+    if paren != -1:
+        token = token[:paren]
+    return token
+
+
+def _cif_float(token: str) -> float:
+    return float(_strip_cif_value(token))
+
+
+def _split_cif_tokens(line: str) -> list[str]:
+    """Split a CIF data line, respecting single/double quotes."""
+    tokens: list[str] = []
+    i = 0
+    n = len(line)
+    while i < n:
+        c = line[i]
+        if c.isspace():
+            i += 1
+            continue
+        if c in ("'", '"'):
+            quote = c
+            j = i + 1
+            while j < n and line[j] != quote:
+                j += 1
+            tokens.append(line[i + 1 : j])
+            i = j + 1
+        else:
+            j = i
+            while j < n and not line[j].isspace():
+                j += 1
+            tokens.append(line[i:j])
+            i = j
+    return tokens
+
+
+def _element_from_cif_label(label: str) -> str:
+    """Extract an element symbol from a CIF atom label like 'C1', 'Fe2+', 'H_a'."""
+    label = label.strip()
+    if not label:
+        raise ValueError("Empty CIF atom label")
+    if len(label) >= 2 and label[0].isalpha() and label[1].isalpha() and label[1].islower():
+        return label[:2]
+    return label[0]
+
+
+def parse_cif(filepath: str | Path) -> Molecule:
+    """Parse a minimal CIF file into a Molecule.
+
+    Supports cell parameters (_cell_length_a/b/c, _cell_angle_alpha/beta/gamma)
+    and a single atom_site loop with fractional or Cartesian coordinates.
+    """
+    filepath = Path(filepath)
+    with open(filepath) as f:
+        raw_lines = f.readlines()
+
+    lines: list[str] = []
+    for line in raw_lines:
+        stripped = line.split("#", 1)[0].rstrip()
+        if not stripped.strip():
+            continue
+        lines.append(stripped)
+
+    cell: dict[str, float] = {}
+    cell_keys = {
+        "_cell_length_a": "a",
+        "_cell_length_b": "b",
+        "_cell_length_c": "c",
+        "_cell_angle_alpha": "alpha",
+        "_cell_angle_beta": "beta",
+        "_cell_angle_gamma": "gamma",
+    }
+
+    atoms: list[Atom] = []
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        lower = stripped.lower()
+
+        matched_cell = False
+        for key, name in cell_keys.items():
+            if lower.startswith(key):
+                tokens = _split_cif_tokens(stripped)
+                if len(tokens) >= 2:
+                    cell[name] = _cif_float(tokens[1])
+                else:
+                    i += 1
+                    cell[name] = _cif_float(lines[i].strip())
+                matched_cell = True
+                break
+        if matched_cell:
+            i += 1
+            continue
+
+        if lower == "loop_":
+            i += 1
+            headers: list[str] = []
+            while i < len(lines) and lines[i].strip().startswith("_"):
+                headers.append(lines[i].strip().lower())
+                i += 1
+
+            atom_site_headers = [h for h in headers if h.startswith("_atom_site_")]
+            if not atom_site_headers or len(atom_site_headers) != len(headers):
+                while i < len(lines):
+                    s = lines[i].strip()
+                    if not s or s.lower() == "loop_" or s.startswith("_") or s.startswith("data_"):
+                        break
+                    i += 1
+                continue
+
+            col_index = {h: idx for idx, h in enumerate(headers)}
+            label_idx = col_index.get("_atom_site_label")
+            symbol_idx = col_index.get("_atom_site_type_symbol")
+            fx_idx = col_index.get("_atom_site_fract_x")
+            fy_idx = col_index.get("_atom_site_fract_y")
+            fz_idx = col_index.get("_atom_site_fract_z")
+            cx_idx = col_index.get("_atom_site_cartn_x")
+            cy_idx = col_index.get("_atom_site_cartn_y")
+            cz_idx = col_index.get("_atom_site_cartn_z")
+
+            coord_idx: tuple[int, int, int] | None = None
+            use_fractional = False
+            if fx_idx is not None and fy_idx is not None and fz_idx is not None:
+                coord_idx = (fx_idx, fy_idx, fz_idx)
+                use_fractional = True
+            elif cx_idx is not None and cy_idx is not None and cz_idx is not None:
+                coord_idx = (cx_idx, cy_idx, cz_idx)
+            else:
+                raise ValueError("CIF atom_site loop missing coordinate columns")
+
+            lattice = np.eye(3)
+            if use_fractional:
+                missing = [k for k in ("a", "b", "c", "alpha", "beta", "gamma") if k not in cell]
+                if missing:
+                    raise ValueError(
+                        "CIF file uses fractional coordinates but is missing "
+                        f"cell parameters: {missing}"
+                    )
+                lattice = _cif_fractional_to_cartesian_matrix(
+                    cell["a"],
+                    cell["b"],
+                    cell["c"],
+                    cell["alpha"],
+                    cell["beta"],
+                    cell["gamma"],
+                )
+
+            while i < len(lines):
+                s = lines[i].strip()
+                if not s or s.lower() == "loop_" or s.startswith("data_") or s.startswith("_"):
+                    break
+                tokens = _split_cif_tokens(s)
+                if len(tokens) != len(headers):
+                    raise ValueError(
+                        f"CIF atom_site row has {len(tokens)} tokens, expected {len(headers)}"
+                    )
+
+                if symbol_idx is not None:
+                    symbol = _strip_cif_value(tokens[symbol_idx])
+                elif label_idx is not None:
+                    symbol = _element_from_cif_label(_strip_cif_value(tokens[label_idx]))
+                else:
+                    raise ValueError("CIF atom_site loop missing label and type_symbol")
+
+                symbol_clean = ""
+                for ch in symbol:
+                    if ch.isalpha():
+                        symbol_clean += ch
+                    else:
+                        break
+                if not symbol_clean:
+                    raise ValueError(f"Could not derive element from CIF symbol {symbol!r}")
+
+                assert coord_idx is not None
+                ix, iy, iz = coord_idx
+                coords = np.array(
+                    [_cif_float(tokens[ix]), _cif_float(tokens[iy]), _cif_float(tokens[iz])],
+                    dtype=np.float64,
+                )
+                pos = coords @ lattice if use_fractional else coords
+                atoms.append(Atom(element=get_element(symbol_clean), position=pos))
+                i += 1
+            continue
+
+        i += 1
+
+    if not atoms:
+        raise ValueError("No atoms found in CIF file")
+
+    mol_lattice: np.ndarray | None = None
+    if all(k in cell for k in ("a", "b", "c", "alpha", "beta", "gamma")):
+        mol_lattice = _cif_fractional_to_cartesian_matrix(
+            cell["a"],
+            cell["b"],
+            cell["c"],
+            cell["alpha"],
+            cell["beta"],
+            cell["gamma"],
+        )
+
+    mol = Molecule(atoms=atoms, bonds=[], lattice=mol_lattice)
+    if mol_lattice is not None:
+        mol.detect_bonds_periodic()
+    else:
+        mol.detect_bonds()
+    return mol
 
 
 def parse_cube(filepath: str | Path) -> Molecule:
@@ -477,7 +830,7 @@ def parse_zmat(filepath: str | Path) -> Molecule:
 def load_molecule(filepath: str | Path) -> Molecule:
     filepath = Path(filepath)
     suffix = filepath.suffix.lower()
-    if suffix == ".xyz":
+    if suffix in (".xyz", ".extxyz"):
         return parse_xyz(filepath)
     elif suffix == ".cube":
         return parse_cube(filepath)
@@ -493,6 +846,8 @@ def load_molecule(filepath: str | Path) -> Molecule:
         return parse_orca_hess_data(filepath).molecule
     elif suffix in (".zmat", ".zmatrix"):
         return parse_zmat(filepath)
+    elif suffix == ".cif":
+        return parse_cif(filepath)
     elif suffix == ".gbw":
         raise ValueError(
             ".gbw files must be opened via the moltui command, not load_molecule(). "
@@ -504,6 +859,6 @@ def load_molecule(filepath: str | Path) -> Molecule:
         if is_trexio_path(filepath):
             return load_molecule_from_trexio(filepath)
         raise ValueError(
-            f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, .hess, .gbw, "
+            f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, .hess, .cif, .gbw, "
             "or TREXIO (.h5, .hdf5, .trexio; install optional extra: trexio)"
         )

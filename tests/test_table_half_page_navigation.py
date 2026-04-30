@@ -46,7 +46,8 @@ def _chain_molecule(length: int):
 def _row_key_atoms(table, row: int) -> set[int]:
     row_key = list(table.rows.keys())[row]
     assert row_key.value is not None
-    return {int(idx) for idx in row_key.value.split("-")}
+    atom_part = row_key.value.split("#", 1)[0]
+    return {int(idx) for idx in atom_part.split("-")}
 
 
 @pytest.mark.asyncio

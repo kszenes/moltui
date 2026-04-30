@@ -18,10 +18,23 @@ class TestDetectFiletype:
         path.write_text("3\nwater\nO 0 0 0\nH 0.758 0 0.504\nH -0.758 0 0.504\n")
         assert _detect_filetype(str(path)) == "xyz"
 
+    def test_extxyz_extension_detected_as_xyz(self, tmp_path: Path):
+        path = tmp_path / "water.extxyz"
+        path.write_text(
+            '3\nLattice="4 0 0 0 4 0 0 0 4" Properties="species:S:1:pos:R:3"\n'
+            "O 0 0 0\nH 0.758 0 0.504\nH -0.758 0 0.504\n"
+        )
+        assert _detect_filetype(str(path)) == "xyz"
+
     def test_molden_detected(self, tmp_path: Path):
         path = tmp_path / "sample.molden"
         path.write_text("[MOLDEN FORMAT]\n[Atoms] AU\nH 1 1 0.0 0.0 0.0\n")
         assert _detect_filetype(str(path)) == "molden"
+
+    def test_cif_by_extension(self, tmp_path: Path):
+        path = tmp_path / "x.cif"
+        path.write_text("data_x\n_cell_length_a 1.0\n")
+        assert _detect_filetype(str(path)) == "cif"
 
     def test_cube_detected(self, tmp_path: Path):
         path = tmp_path / "sample.cube"

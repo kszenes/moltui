@@ -9,6 +9,30 @@ from textual.widgets import DataTable, TabbedContent, TabPane
 from .elements import Molecule
 
 
+def _parse_row_key(
+    value: str,
+) -> tuple[tuple[int, ...], tuple[tuple[int, int, int], ...] | None]:
+    """Parse a geometry-panel row key into atom indices and optional shift.
+
+    Format: ``i-j[-k[-l]]#row_idx[;sx,sy,sz]``. The shift, when present,
+    applies to the second atom (j) of a periodic bond; the first atom is
+    always the in-cell atom.
+    """
+    head = value.split("#", 1)
+    atom_part = head[0]
+    indices = tuple(int(x) for x in atom_part.split("-"))
+    shifts: tuple[tuple[int, int, int], ...] | None = None
+    if len(head) > 1:
+        rest = head[1]
+        if ";" in rest:
+            shift_str = rest.split(";", 1)[1]
+            parts = shift_str.split(",")
+            if len(parts) == 3:
+                s = (int(parts[0]), int(parts[1]), int(parts[2]))
+                shifts = tuple((0, 0, 0) if k == 0 else s for k in range(len(indices)))
+    return indices, shifts
+
+
 class GeometryPanel(Widget):
     BINDINGS = [
         Binding("tab", "next_tab", "Tab", show=True),
@@ -31,13 +55,21 @@ class GeometryPanel(Widget):
     """
 
     class HighlightAtoms(Message):
-        def __init__(self, atom_indices: tuple[int, ...]) -> None:
+        def __init__(
+            self,
+            atom_indices: tuple[int, ...],
+            image_shifts: tuple[tuple[int, int, int], ...] | None = None,
+        ) -> None:
             super().__init__()
             self.atom_indices = atom_indices
+            # Per-index integer cell shift; (0, 0, 0) means highlight the
+            # in-cell atom. Length must match atom_indices when set.
+            self.image_shifts = image_shifts
 
     def __init__(self) -> None:
         super().__init__()
         self._molecule: Molecule | None = None
+        self._parent_indices: list[int] | None = None
         self._populating = False
         self._sort_ascending: dict[str, bool] = {
             "tab-bonds": False,
@@ -45,8 +77,9 @@ class GeometryPanel(Widget):
             "tab-dihedrals": False,
         }
 
-    def set_molecule(self, molecule: Molecule) -> None:
+    def set_molecule(self, molecule: Molecule, parent_indices: list[int] | None = None) -> None:
         self._molecule = molecule
+        self._parent_indices = parent_indices
         if self.is_mounted:
             self._populate_tables()
 
@@ -106,7 +139,11 @@ class GeometryPanel(Widget):
         if self._molecule is None:
             return str(idx + 1)
         width = len(str(len(self._molecule.atoms)))
-        return f"{idx + 1:>{width}}:{self._molecule.atoms[idx].element.symbol}"
+        if self._parent_indices is not None and 0 <= idx < len(self._parent_indices):
+            label_idx = self._parent_indices[idx]
+        else:
+            label_idx = idx
+        return f"{label_idx + 1:>{width}}:{self._molecule.atoms[idx].element.symbol}"
 
     def _table_for_tab(self, tab_id: str) -> DataTable:
         table_id = {
@@ -142,17 +179,17 @@ class GeometryPanel(Widget):
 
         # Bonds
         bonds = self._molecule.get_bond_lengths()
-        if self._sort_ascending["tab-bonds"]:
-            bonds.sort(key=lambda x: x[2])
         table = self.query_one("#bonds-table", DataTable)
         table.clear(columns=True)
         table.add_columns("Atom 1", "Atom 2", "Length (\u00c5)")
-        for i, j, dist in bonds:
+        if self._sort_ascending["tab-bonds"]:
+            bonds.sort(key=lambda x: x[2])
+        for row_idx, (i, j, dist) in enumerate(bonds):
             table.add_row(
                 self._atom_label(i),
                 self._atom_label(j),
-                f"{dist:>8.4f}",
-                key=f"{i}-{j}",
+                f"{dist:.4f}",
+                key=f"{i}-{j}#{row_idx}",
             )
         self._restore_cursor(table, selected_row_keys.get("tab-bonds"))
 
@@ -163,13 +200,13 @@ class GeometryPanel(Widget):
         table = self.query_one("#angles-table", DataTable)
         table.clear(columns=True)
         table.add_columns("Atom 1", "Vertex", "Atom 3", "Angle (\u00b0)")
-        for i, j, k, angle in angles:
+        for row_idx, (i, j, k, angle) in enumerate(angles):
             table.add_row(
                 self._atom_label(i),
                 self._atom_label(j),
                 self._atom_label(k),
-                f"{angle:>8.3f}",
-                key=f"{i}-{j}-{k}",
+                f"{angle:.3f}",
+                key=f"{i}-{j}-{k}#{row_idx}",
             )
         self._restore_cursor(table, selected_row_keys.get("tab-angles"))
 
@@ -180,14 +217,14 @@ class GeometryPanel(Widget):
         table = self.query_one("#dihedrals-table", DataTable)
         table.clear(columns=True)
         table.add_columns("Atom 1", "Atom 2", "Atom 3", "Atom 4", "Angle (\u00b0)")
-        for i, j, k, l, angle in dihedrals:
+        for row_idx, (i, j, k, l, angle) in enumerate(dihedrals):
             table.add_row(
                 self._atom_label(i),
                 self._atom_label(j),
                 self._atom_label(k),
                 self._atom_label(l),
-                f"{angle:>8.3f}",
-                key=f"{i}-{j}-{k}-{l}",
+                f"{angle:.3f}",
+                key=f"{i}-{j}-{k}-{l}#{row_idx}",
             )
         self._restore_cursor(table, selected_row_keys.get("tab-dihedrals"))
 
@@ -202,8 +239,8 @@ class GeometryPanel(Widget):
             return
         rk = list(dt.rows.keys())[dt.cursor_row]
         if rk.value is not None:
-            indices = tuple(int(x) for x in rk.value.split("-"))
-            self.post_message(self.HighlightAtoms(indices))
+            indices, shifts = _parse_row_key(rk.value)
+            self.post_message(self.HighlightAtoms(indices, shifts))
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         """Focus the DataTable in the newly active tab and highlight its row."""
@@ -224,5 +261,5 @@ class GeometryPanel(Widget):
             return
         if event.row_key is None or event.row_key.value is None:
             return
-        indices = tuple(int(x) for x in event.row_key.value.split("-"))
-        self.post_message(self.HighlightAtoms(indices))
+        indices, shifts = _parse_row_key(event.row_key.value)
+        self.post_message(self.HighlightAtoms(indices, shifts))

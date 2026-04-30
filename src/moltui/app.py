@@ -142,12 +142,16 @@ class MoleculeView(Widget):
         self.rot_matrix = rotation_matrix(-0.2, -0.5, 0.0)
         self.camera_distance = 4.0
         self.show_bonds = True
+        self.show_cell = True
+        self.show_replication = True
+        self.supercell_dims: tuple[int, int, int] = (1, 1, 1)
         self.show_orbitals = True
         self.dark_bg = True
         self.pan_x = 0.0
         self.pan_y = 0.0
         self.pan_mode = False
         self.highlighted_atoms: set[int] = set()
+        self.highlighted_targets: list[np.ndarray] = []
         self.show_atom_numbers = False
         self.licorice = False
         self.vdw = False
@@ -180,6 +184,23 @@ class MoleculeView(Widget):
         self._cached_size = (0, 0)
         self.refresh()
 
+    def _compute_parent_indices(self, augmented: Molecule) -> list[int]:
+        """For each atom in `augmented`, return the index of the in-cell parent."""
+        if self.molecule is None or self.molecule.lattice is None:
+            return list(range(len(augmented.atoms)))
+        inv = np.linalg.inv(self.molecule.lattice)
+        ref = np.array([a.position @ inv for a in self.molecule.atoms], dtype=np.float64)
+        ref_mod = ref - np.floor(ref + 1e-6)
+        parents: list[int] = []
+        for atom in augmented.atoms:
+            frac = atom.position @ inv
+            frac_mod = frac - np.floor(frac + 1e-6)
+            delta = ref_mod - frac_mod
+            delta -= np.round(delta)
+            d2 = np.einsum("ij,ij->i", delta, delta)
+            parents.append(int(np.argmin(d2)))
+        return parents
+
     def render_line(self, y: int) -> Strip:
         w, h = self.size.width, self.size.height
         if (w, h) != self._cached_size:
@@ -202,11 +223,31 @@ class MoleculeView(Widget):
         rot = self.rot_matrix
 
         mol = self.molecule
+        if mol.lattice is not None and self.supercell_dims != (1, 1, 1):
+            nx, ny, nz = self.supercell_dims
+            mol = mol.supercell(nx, ny, nz)
+        if mol.lattice is not None and self.show_replication:
+            mol = mol.with_bonded_periodic_images()
+        cell_lattice = mol.lattice if self.show_cell else None
         if not self.show_bonds:
-            mol = Molecule(atoms=mol.atoms, bonds=[])
+            mol = Molecule(atoms=mol.atoms, bonds=[], lattice=cell_lattice)
+        elif cell_lattice is not mol.lattice:
+            mol = Molecule(atoms=mol.atoms, bonds=mol.bonds, lattice=cell_lattice)
 
         isos = self.isosurfaces if self.show_orbitals else None
-        hl = self.highlighted_atoms if self.highlighted_atoms else None
+        hl: set[int] | None = None
+        if self.highlighted_targets:
+            atom_positions = np.array([a.position for a in mol.atoms], dtype=np.float64)
+            hl_set: set[int] = set()
+            for target in self.highlighted_targets:
+                deltas = atom_positions - target
+                d2 = np.einsum("ij,ij->i", deltas, deltas)
+                idx = int(np.argmin(d2))
+                if d2[idx] < 1e-3:
+                    hl_set.add(idx)
+            hl = hl_set or None
+        elif self.highlighted_atoms:
+            hl = self.highlighted_atoms
         pixels, hit = render_scene(
             px_w,
             px_h,
@@ -226,6 +267,7 @@ class MoleculeView(Widget):
             shininess=self.shininess,
             atom_scale=self.atom_scale,
             bond_radius=self.bond_radius,
+            cell_dims=self.supercell_dims if self.show_cell else (1, 1, 1),
         )
 
         blocks = pixels.reshape(rows, 4, cols, 2, 3)
@@ -252,13 +294,20 @@ class MoleculeView(Widget):
         if self.show_atom_numbers and self.molecule is not None:
             fov = 1.5
             scale = min(px_w, px_h) / 2
-            centroid = self.molecule.center()
+            # Match the renderer's centroid: cell center when periodic, else mean.
+            if mol.lattice is not None:
+                centroid = 0.5 * (mol.lattice[0] + mol.lattice[1] + mol.lattice[2])
+            else:
+                centroid = mol.center()
             label_style = Style(
                 color="rgb(255,255,0)" if self.dark_bg else "rgb(0,0,180)",
                 bgcolor=f"rgb({bg[0]},{bg[1]},{bg[2]})",
                 bold=True,
             )
-            for idx, atom in enumerate(self.molecule.atoms):
+            # Map each rendered atom (originals + ghosts) to its parent index
+            # so ghost atoms inherit their parent's number.
+            parent_lookup = self._compute_parent_indices(mol)
+            for idx, atom in enumerate(mol.atoms):
                 pos = rot @ (atom.position - centroid)
                 pos[0] += self.pan_x
                 pos[1] += self.pan_y
@@ -270,7 +319,8 @@ class MoleculeView(Widget):
                 # Convert pixel coords to terminal cell coords
                 cell_col = int(sx / 2)
                 cell_row = int(sy / 4) - 1  # place label above atom
-                label = str(idx + 1)
+                label_idx = parent_lookup[idx] if idx < len(parent_lookup) else idx
+                label = str(label_idx + 1)
                 for ci, ch in enumerate(label):
                     c = cell_col + ci
                     if 0 <= cell_row < rows and 0 <= c < cols:
@@ -354,7 +404,8 @@ class MoltuiApp(App):
         Binding("t", "toggle_mode", "Pan/Rot"),
         Binding("c", "center", "Center", show=False),
         Binding("r", "reset_view", "Reset"),
-        Binding("b", "toggle_bonds", "Bonds"),
+        Binding("B", "toggle_bonds", "Bonds"),
+        Binding("b", "toggle_replication", "Ghosts"),
         Binding("i", "toggle_bg", "Bg"),
         Binding("v", "toggle_style", "Style"),
         Binding("number_sign", "toggle_atom_numbers", "#Nums"),
@@ -386,6 +437,7 @@ class MoltuiApp(App):
         self.molecule = molecule
         self.filepath = filepath
         self._isosurfaces = isosurfaces or []
+        self._display_molecule: Molecule | None = None
         self.orbital_data = orbital_data
         self.current_mo = current_mo
         self._cube_data: CubeData | None = None
@@ -414,11 +466,44 @@ class MoltuiApp(App):
             yield VisualPanel()
         yield Footer()
 
+    def _build_display_molecule(self) -> tuple[Molecule, list[int] | None]:
+        """Build the molecule shown in the side panel (with ghost atoms when periodic).
+
+        Returns the augmented molecule and a parallel list mapping each
+        augmented atom back to the originating in-cell atom for labeling.
+        """
+        mol = self.molecule
+        if mol.lattice is None:
+            return mol, None
+        augmented = mol.with_bonded_periodic_images()
+        # Map each augmented atom to the parent (in-cell) atom by matching
+        # fractional coordinates modulo 1.
+        inv = np.linalg.inv(mol.lattice)
+        in_cell_fracs = np.array([a.position @ inv for a in mol.atoms], dtype=np.float64)
+        parents: list[int] = []
+        for atom in augmented.atoms:
+            frac = atom.position @ inv
+            mod_frac = frac - np.floor(frac + 1e-6)
+            best = 0
+            best_d2 = float("inf")
+            for k, ref in enumerate(in_cell_fracs):
+                ref_mod = ref - np.floor(ref + 1e-6)
+                delta = mod_frac - ref_mod
+                delta -= np.round(delta)
+                d2 = float(delta @ delta)
+                if d2 < best_d2:
+                    best_d2 = d2
+                    best = k
+            parents.append(best)
+        return augmented, parents
+
     def on_mount(self) -> None:
         view = self.query_one(MoleculeView)
         view.set_molecule(self.molecule, self._isosurfaces)
         panel = self.query_one(GeometryPanel)
-        panel.set_molecule(self.molecule)
+        display_mol, parents = self._build_display_molecule()
+        self._display_molecule = display_mol
+        panel.set_molecule(display_mol, parents)
         if self._has_orbital_mos():
             md = self.orbital_data
             assert md is not None
@@ -601,6 +686,9 @@ class MoltuiApp(App):
             if self.normal_mode_data is not None
             else 0.0,
             trajectory_fps=1.0 / self._playback_interval_sec,
+            has_lattice=view.molecule is not None and view.molecule.lattice is not None,
+            show_cell=view.show_cell,
+            supercell_n=view.supercell_dims[0],
         )
 
     def _has_animation(self) -> bool:
@@ -774,6 +862,41 @@ class MoltuiApp(App):
         view.show_bonds = not view.show_bonds
         view._invalidate_cache()
 
+    def action_toggle_replication(self) -> None:
+        if self.molecule is None or self.molecule.lattice is None:
+            return
+        view = self.query_one(MoleculeView)
+        view.show_replication = not view.show_replication
+        view.highlighted_atoms = set()
+        view.highlighted_targets = []
+        view._invalidate_cache()
+        self._refresh_geometry_panel()
+
+    def _refresh_geometry_panel(self) -> None:
+        try:
+            panel = self.query_one(GeometryPanel)
+        except NoMatches:
+            return
+        view = self._query_molecule_view()
+        replicate = bool(view and view.show_replication)
+        if replicate and self.molecule is not None and self.molecule.lattice is not None:
+            display_mol, parents = self._build_display_molecule()
+        elif self.molecule is not None and self.molecule.lattice is not None:
+            # Replication off: show only in-cell bonds (shift (0,0,0)).
+            shifts = self.molecule.bond_shifts or []
+            in_cell = [bond for bond, s in zip(self.molecule.bonds, shifts) if s == (0, 0, 0)]
+            display_mol = Molecule(
+                atoms=self.molecule.atoms,
+                bonds=in_cell,
+                lattice=self.molecule.lattice,
+            )
+            parents = None
+        else:
+            display_mol, parents = self.molecule, None
+        self._display_molecule = display_mol
+        if display_mol is not None:
+            panel.set_molecule(display_mol, parents)
+
     def action_toggle_bg(self) -> None:
         view = self.query_one(MoleculeView)
         view.dark_bg = not view.dark_bg
@@ -795,6 +918,7 @@ class MoltuiApp(App):
         view.pan_y = 0.0
         view.pan_mode = False
         view.highlighted_atoms = set()
+        view.highlighted_targets = []
         if view.molecule:
             view.camera_distance = max(4.0, view.molecule.radius() * 3.0)
         view._invalidate_cache()
@@ -1038,6 +1162,7 @@ class MoltuiApp(App):
         if geom.has_class("visible"):
             geom.remove_class("visible")
             view.highlighted_atoms = set()
+            view.highlighted_targets = []
         if mo.has_class("visible"):
             mo.remove_class("visible")
         if mode_panel.has_class("visible"):
@@ -1198,6 +1323,13 @@ class MoltuiApp(App):
             self._stop_playback()
             self._start_playback()
 
+    def on_visual_panel_cell_changed(self, event: VisualPanel.CellChanged) -> None:
+        view = self.query_one(MoleculeView)
+        view.show_cell = event.show_cell
+        n = max(1, min(3, event.supercell_n))
+        view.supercell_dims = (n, n, n)
+        view._invalidate_cache()
+
     def on_mopanel_moselected(self, event: MOPanel.MOSelected) -> None:
         self._set_current_mo(event.mo_index)
 
@@ -1212,6 +1344,15 @@ class MoltuiApp(App):
         view = self._query_molecule_view()
         if view is None:
             return
+        # Indices refer to the augmented display molecule; collect their
+        # positions so the renderer can match them against its render set.
+        targets: list[np.ndarray] = []
+        source = self._display_molecule or self.molecule
+        if source is not None:
+            for idx in event.atom_indices:
+                if 0 <= idx < len(source.atoms):
+                    targets.append(source.atoms[idx].position.copy())
+        view.highlighted_targets = targets
         view.highlighted_atoms = set(event.atom_indices)
         view._invalidate_cache()
 
@@ -1293,6 +1434,10 @@ def _detect_filetype(filepath: str) -> str:
         return "molden"
     if suffix in (".fchk", ".fch"):
         return "fchk"
+    if suffix in (".xyz", ".extxyz"):
+        return "xyz"
+    if suffix == ".cif":
+        return "cif"
     if suffix in (".h5", ".hdf5") and path.is_file():
         return "trexio"
     if suffix == ".trexio" and (path.is_file() or path.is_dir()):

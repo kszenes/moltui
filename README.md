@@ -42,6 +42,15 @@ The modes consist of **molecular orbitals**, **normal modes** and **geometry** a
 
 <img width="1510" height="923" alt="image" src="https://github.com/user-attachments/assets/8a6dab9a-d377-4d16-bfe1-89c83d0763a1" />
 
+#### Periodic Systems
+
+- **Periodic systems** can be provided using the **extended XYZ** and **CIF** file formats
+- The **toggling** of the **periodicity** is achieved via the `b` key
+- The **rendering of the box** can be toggled in the visual pane
+
+<img width="1508" height="899" alt="image" src="https://github.com/user-attachments/assets/5604ec3a-942c-427e-bef6-fc100be8f96c" />
+
+
 ### Animations
 
 #### Trajectories
@@ -90,7 +99,7 @@ Toggle between **light** and **dark** mode with `i`.
 | Format                | Geometry | Orbitals | Normal Modes |
 |-----------------------|:--------:|:--------:|:------------:|
 | **XYZ** / **extXYZ**  | ✓        | —        | —            |
-| **CIF**   | ✓        | —        | —            |
+| **CIF**               | ✓        | —        | —            |
 | Gaussian **ZMAT**     | ✓        | —        | —            |
 | Gaussian **Cube**     | ✓        | ✓        | —            |
 | **Molden**            | ✓        | ✓        | ✓            |
@@ -124,7 +133,8 @@ Toggle between **light** and **dark** mode with `i`.
 |-----|--------|
 | `o` | Toggle **orbital isosurfaces** |
 | `i` | Toggle **dark/light** theme |
-| `b` | Toggle **bonds** |
+| `B` | Toggle **bonds** |
+| `b` | Toggle **periodicity** |
 | `e` | **Export** PNG |
 | `v` | Toggle **style** (CPK, Licorice, VDW) |
 | `#` | Toggle **atom numbers** |

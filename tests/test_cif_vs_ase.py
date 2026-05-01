@@ -84,10 +84,30 @@ def _assert_structures_equivalent(mol, atoms, tol: float = 1e-3) -> None:
         f"element counts differ: moltui={dict(moltui_counts)} ase={dict(ase_counts)}"
     )
 
-    # Cell parameters (a, b, c).
-    a, b, c = (np.linalg.norm(mol.lattice[i]) for i in range(3))
+    # Cell parameters: lengths (a, b, c) and angles (α, β, γ).
+    a_vec, b_vec, c_vec = mol.lattice[0], mol.lattice[1], mol.lattice[2]
+    a, b, c = (np.linalg.norm(v) for v in (a_vec, b_vec, c_vec))
+
+    def _angle(u: np.ndarray, v: np.ndarray) -> float:
+        cos = float(np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v)))
+        return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
+
+    alpha = _angle(b_vec, c_vec)
+    beta = _angle(a_vec, c_vec)
+    gamma = _angle(a_vec, b_vec)
     cellpar = atoms.cell.cellpar()
-    np.testing.assert_allclose([a, b, c], cellpar[:3], atol=1e-3)
+    np.testing.assert_allclose(
+        np.array([a, b, c, alpha, beta, gamma], dtype=np.float64),
+        cellpar,
+        atol=1e-3,
+        err_msg=(
+            f"cell parameters differ:\n"
+            f"  moltui: a={a:.4f} b={b:.4f} c={c:.4f} "
+            f"α={alpha:.4f} β={beta:.4f} γ={gamma:.4f}\n"
+            f"  ase:    a={cellpar[0]:.4f} b={cellpar[1]:.4f} c={cellpar[2]:.4f} "
+            f"α={cellpar[3]:.4f} β={cellpar[4]:.4f} γ={cellpar[5]:.4f}"
+        ),
+    )
 
     # Per-element fractional-coordinate sets must match (periodic, tol-based).
     moltui_frac = _wrap_fracs(_moltui_fractional(mol))

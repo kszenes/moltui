@@ -1485,22 +1485,31 @@ def _detect_filetype(filepath: str) -> str:
         raise ValueError(
             f"{path.resolve()!s} is a directory and is not a readable TREXIO text archive. "
         )
-    with open(filepath) as f:
-        for line in f:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if "[molden format]" in stripped.lower():
-                return "molden"
-            if stripped.lower() == "$orca_hessian_file":
-                return "hess"
-            try:
-                int(stripped)
-                return "xyz"
-            except ValueError:
-                pass
-            return "cube"
-    return suffix.lstrip(".")
+    try:
+        with open(filepath) as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if "[molden format]" in stripped.lower():
+                    return "molden"
+                if stripped.lower() == "$orca_hessian_file":
+                    return "hess"
+                try:
+                    int(stripped)
+                    return "xyz"
+                except ValueError:
+                    pass
+                break
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Could not read {filepath!s}: {exc}") from exc
+    if suffix in (".cube", ".cub"):
+        return "cube"
+    raise ValueError(
+        f"Unsupported file format: {filepath!s}. "
+        "Supported formats: .xyz, .extxyz, .cif, .cube, .molden, .fchk, .hess, "
+        ".zmat, .gbw, .h5/.hdf5/.trexio (TREXIO)."
+    )
 
 
 def _convert_gbw_to_molden(gbw_path: str | Path) -> Path:

@@ -71,3 +71,41 @@ def test_build_view_render_scene_includes_periodic_ghosts_for_export_path():
     assert len(render_mol.bonds) == 36
     assert isos is None
     assert show_cell is True
+
+
+def test_build_view_render_scene_filters_cross_cell_bonds_without_ghosts():
+    C = get_element("C")
+    lattice = np.array(
+        [
+            [2.46, 0.0, 0.0],
+            [-1.23, 2.13042249, 0.0],
+            [0.0, 0.0, 6.71],
+        ]
+    )
+    molecule = Molecule(
+        atoms=[
+            Atom(C, np.array([0.0, 0.0, 0.0])),
+            Atom(C, np.array([0.0, 1.42028166, 0.0])),
+            Atom(C, np.array([0.0, 0.0, 3.355])),
+            Atom(C, np.array([1.23, 0.71014083, 3.355])),
+        ],
+        bonds=[],
+        lattice=lattice,
+    )
+    molecule.detect_bonds_periodic()
+
+    view = SimpleNamespace(
+        molecule=molecule,
+        isosurfaces=[],
+        show_orbitals=False,
+        show_replication=False,
+        show_cell=True,
+        show_bonds=True,
+    )
+
+    render_mol, isos, show_cell = _build_view_render_scene(view)
+
+    assert len(render_mol.atoms) == 4
+    assert len(render_mol.bonds) == 2
+    assert isos is None
+    assert show_cell is True

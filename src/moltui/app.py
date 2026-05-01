@@ -115,6 +115,8 @@ def _build_view_render_scene(
     mol = view.molecule
     if mol.lattice is not None and view.show_replication:
         mol = mol.with_bonded_periodic_images()
+    elif mol.lattice is not None:
+        mol = mol.with_in_cell_bonds()
 
     cell_lattice = mol.lattice if view.show_cell else None
     if not view.show_bonds:
@@ -515,14 +517,7 @@ class MoltuiApp(App):
                 parent_indices=_compute_parent_indices(mol, augmented),
             )
 
-        shifts = mol.bond_shifts
-        if shifts is None:
-            in_cell = list(mol.bonds)
-        else:
-            in_cell = [bond for bond, shift in zip(mol.bonds, shifts) if shift == (0, 0, 0)]
-        return DisplayGeometry(
-            molecule=Molecule(atoms=mol.atoms, bonds=in_cell, lattice=mol.lattice),
-        )
+        return DisplayGeometry(molecule=mol.with_in_cell_bonds())
 
     def on_mount(self) -> None:
         view = self.query_one(MoleculeView)

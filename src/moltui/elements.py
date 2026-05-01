@@ -167,6 +167,17 @@ class Molecule:
         distances = np.linalg.norm(positions - centroid, axis=1)
         return float(distances.max()) if len(distances) > 0 else 1.0
 
+    def with_in_cell_bonds(self) -> "Molecule":
+        """Return a copy with only bonds that stay within the unit cell."""
+        if self.lattice is None or self.bond_shifts is None:
+            return self
+        in_cell = [
+            bond
+            for bond, shift in zip(self.bonds, self.bond_shifts, strict=False)
+            if shift == (0, 0, 0)
+        ]
+        return Molecule(atoms=self.atoms, bonds=in_cell, lattice=self.lattice)
+
     def _bond_displacement(self, bond_index: int) -> np.ndarray:
         if self.bond_shifts is None or self.lattice is None or bond_index >= len(self.bond_shifts):
             return np.zeros(3, dtype=np.float64)

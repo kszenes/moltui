@@ -131,6 +131,11 @@ def _compute_parent_indices(base: Molecule, augmented: Molecule) -> list[int]:
     return parents
 
 
+def _position_key(position: np.ndarray) -> tuple[int, int, int]:
+    """Stable key for matching rendered atoms back to selected display atoms."""
+    return tuple(np.round(np.asarray(position, dtype=np.float64) * 1000).astype(int).tolist())
+
+
 @dataclass
 class TrajectoryData:
     frames: np.ndarray  # (n_frames, n_atoms, 3)
@@ -146,6 +151,17 @@ class NormalModeData:
     phase: float = 0.0
     phase_step: float = 0.30
     amplitude: float = 1.0
+
+
+@dataclass
+class DisplayGeometry:
+    molecule: Molecule
+    parent_indices: list[int] | None = None
+
+    def parent_index(self, atom_index: int) -> int:
+        if self.parent_indices is None or not (0 <= atom_index < len(self.parent_indices)):
+            return atom_index
+        return self.parent_indices[atom_index]
 
 
 class MoleculeView(Widget):
@@ -169,7 +185,7 @@ class MoleculeView(Widget):
         self.pan_y = 0.0
         self.pan_mode = False
         self.highlighted_atoms: set[int] = set()
-        self.highlighted_targets: list[np.ndarray] = []
+        self.highlighted_display_positions: set[tuple[int, int, int]] = set()
         self.show_atom_numbers = False
         self.licorice = False
         self.vdw = False
@@ -243,15 +259,12 @@ class MoleculeView(Widget):
 
         isos = self.isosurfaces if self.show_orbitals else None
         hl: set[int] | None = None
-        if self.highlighted_targets:
-            atom_positions = np.array([a.position for a in mol.atoms], dtype=np.float64)
-            hl_set: set[int] = set()
-            for target in self.highlighted_targets:
-                deltas = atom_positions - target
-                d2 = np.einsum("ij,ij->i", deltas, deltas)
-                idx = int(np.argmin(d2))
-                if d2[idx] < 1e-3:
-                    hl_set.add(idx)
+        if self.highlighted_display_positions:
+            hl_set = {
+                idx
+                for idx, atom in enumerate(mol.atoms)
+                if _position_key(atom.position) in self.highlighted_display_positions
+            }
             hl = hl_set or None
         elif self.highlighted_atoms:
             hl = self.highlighted_atoms
@@ -444,7 +457,7 @@ class MoltuiApp(App):
         self.molecule = molecule
         self.filepath = filepath
         self._isosurfaces = isosurfaces or []
-        self._display_molecule: Molecule | None = None
+        self._display_geometry: DisplayGeometry | None = None
         self.orbital_data = orbital_data
         self.current_mo = current_mo
         self._cube_data: CubeData | None = None
@@ -473,25 +486,38 @@ class MoltuiApp(App):
             yield VisualPanel()
         yield Footer()
 
-    def _build_display_molecule(self) -> tuple[Molecule, list[int] | None]:
-        """Build the molecule shown in the side panel (with ghost atoms when periodic).
-
-        Returns the augmented molecule and a parallel list mapping each
-        augmented atom back to the originating in-cell atom for labeling.
-        """
+    def _build_display_geometry(self, *, replicate: bool | None = None) -> DisplayGeometry:
+        """Build the molecule shown in the geometry sidebar."""
         mol = self.molecule
         if mol.lattice is None:
-            return mol, None
-        augmented = mol.with_bonded_periodic_images()
-        return augmented, _compute_parent_indices(mol, augmented)
+            return DisplayGeometry(molecule=mol)
+
+        if replicate is None:
+            view = self._query_molecule_view()
+            replicate = bool(view and view.show_replication)
+
+        if replicate:
+            augmented = mol.with_bonded_periodic_images()
+            return DisplayGeometry(
+                molecule=augmented,
+                parent_indices=_compute_parent_indices(mol, augmented),
+            )
+
+        shifts = mol.bond_shifts
+        if shifts is None:
+            in_cell = list(mol.bonds)
+        else:
+            in_cell = [bond for bond, shift in zip(mol.bonds, shifts) if shift == (0, 0, 0)]
+        return DisplayGeometry(
+            molecule=Molecule(atoms=mol.atoms, bonds=in_cell, lattice=mol.lattice),
+        )
 
     def on_mount(self) -> None:
         view = self.query_one(MoleculeView)
         view.set_molecule(self.molecule, self._isosurfaces)
         panel = self.query_one(GeometryPanel)
-        display_mol, parents = self._build_display_molecule()
-        self._display_molecule = display_mol
-        panel.set_molecule(display_mol, parents)
+        self._display_geometry = self._build_display_geometry()
+        panel.set_molecule(self._display_geometry.molecule, self._display_geometry.parent_indices)
         if self._has_orbital_mos():
             md = self.orbital_data
             assert md is not None
@@ -860,8 +886,7 @@ class MoltuiApp(App):
             return
         view = self.query_one(MoleculeView)
         view.show_replication = not view.show_replication
-        view.highlighted_atoms = set()
-        view.highlighted_targets = []
+        view.highlighted_display_positions = set()
         view._invalidate_cache()
         self._refresh_geometry_panel()
 
@@ -870,28 +895,11 @@ class MoltuiApp(App):
             panel = self.query_one(GeometryPanel)
         except NoMatches:
             return
-        view = self._query_molecule_view()
-        replicate = bool(view and view.show_replication)
-        if replicate and self.molecule is not None and self.molecule.lattice is not None:
-            display_mol, parents = self._build_display_molecule()
-        elif self.molecule is not None and self.molecule.lattice is not None:
-            # Replication off: show only in-cell bonds (shift (0,0,0)).
-            shifts = self.molecule.bond_shifts
-            if shifts is None:
-                in_cell = list(self.molecule.bonds)
-            else:
-                in_cell = [bond for bond, s in zip(self.molecule.bonds, shifts) if s == (0, 0, 0)]
-            display_mol = Molecule(
-                atoms=self.molecule.atoms,
-                bonds=in_cell,
-                lattice=self.molecule.lattice,
-            )
-            parents = None
-        else:
-            display_mol, parents = self.molecule, None
-        self._display_molecule = display_mol
-        if display_mol is not None:
-            panel.set_molecule(display_mol, parents)
+        self._display_geometry = self._build_display_geometry()
+        panel.set_molecule(self._display_geometry.molecule, self._display_geometry.parent_indices)
+        if panel.has_class("visible"):
+            tabs = panel.query_one(TabbedContent)
+            panel._emit_current_highlight(panel._table_for_tab(tabs.active))
 
     def action_toggle_bg(self) -> None:
         view = self.query_one(MoleculeView)
@@ -914,7 +922,7 @@ class MoltuiApp(App):
         view.pan_y = 0.0
         view.pan_mode = False
         view.highlighted_atoms = set()
-        view.highlighted_targets = []
+        view.highlighted_display_positions = set()
         if view.molecule:
             view.camera_distance = max(4.0, view.molecule.radius() * 3.0)
         view._invalidate_cache()
@@ -1163,7 +1171,7 @@ class MoltuiApp(App):
         if geom.has_class("visible"):
             geom.remove_class("visible")
             view.highlighted_atoms = set()
-            view.highlighted_targets = []
+            view.highlighted_display_positions = set()
         if mo.has_class("visible"):
             mo.remove_class("visible")
         if mode_panel.has_class("visible"):
@@ -1353,7 +1361,7 @@ class MoltuiApp(App):
         view.show_cell = event.show_cell
         n = max(1, min(3, event.supercell_n))
         view.supercell_dims = (n, n, n)
-        view.highlighted_targets = []
+        view.highlighted_display_positions = set()
         view._invalidate_cache()
 
     def on_mopanel_moselected(self, event: MOPanel.MOSelected) -> None:
@@ -1370,15 +1378,13 @@ class MoltuiApp(App):
         view = self._query_molecule_view()
         if view is None:
             return
-        # Indices refer to the augmented display molecule; collect their
-        # positions so the renderer can match them against its render set.
-        targets: list[np.ndarray] = []
-        source = self._display_molecule or self.molecule
-        if source is not None:
+        display = self._display_geometry
+        positions: set[tuple[int, int, int]] = set()
+        if display is not None:
             for idx in event.atom_indices:
-                if 0 <= idx < len(source.atoms):
-                    targets.append(source.atoms[idx].position.copy())
-        view.highlighted_targets = targets
+                if 0 <= idx < len(display.molecule.atoms):
+                    positions.add(_position_key(display.molecule.atoms[idx].position))
+        view.highlighted_display_positions = positions
         view.highlighted_atoms = set(event.atom_indices)
         view._invalidate_cache()
 

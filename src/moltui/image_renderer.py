@@ -535,66 +535,43 @@ class ImageRenderer:
         rot: np.ndarray,
         camera_distance: float,
         pan: tuple[float, float],
-        cell_dims: tuple[int, int, int] = (1, 1, 1),
+        show_cell: bool = True,
         cell_dash: tuple[int, int] | None = None,
         cell_line_width: int = 1,
     ):
-        """Draw the unit-cell wireframe.
+        """Draw the unit-cell wireframe."""
+        if not show_cell:
+            return
 
-        ``lattice`` describes the outer (super)cell. ``cell_dims`` is the
-        number of unit cells along each axis; one box is drawn per unit cell
-        so the supercell tiling is visible.
-        """
-        nx, ny, nz = cell_dims
-        unit_a = lattice[0] / nx
-        unit_b = lattice[1] / ny
-        unit_c = lattice[2] / nz
+        unit_a = lattice[0]
+        unit_b = lattice[1]
+        unit_c = lattice[2]
 
         color = (150, 150, 150)
-        edges: set[tuple[tuple[int, int, int], tuple[int, int, int]]] = set()
-        for ix in range(nx):
-            for iy in range(ny):
-                for iz in range(nz):
-                    origin = ix * unit_a + iy * unit_b + iz * unit_c
-                    local_corners = []
-                    for c0 in (0.0, 1.0):
-                        for c1 in (0.0, 1.0):
-                            for c2 in (0.0, 1.0):
-                                world = origin + c0 * unit_a + c1 * unit_b + c2 * unit_c
-                                p = rot @ (world - centroid)
-                                p[0] += pan[0]
-                                p[1] += pan[1]
-                                p[2] += camera_distance
-                                local_corners.append(p)
+        corners = []
+        for c0 in (0.0, 1.0):
+            for c1 in (0.0, 1.0):
+                for c2 in (0.0, 1.0):
+                    world = c0 * unit_a + c1 * unit_b + c2 * unit_c
+                    p = rot @ (world - centroid)
+                    p[0] += pan[0]
+                    p[1] += pan[1]
+                    p[2] += camera_distance
+                    corners.append(p)
 
-                    for corner_index in range(8):
-                        base = (
-                            ix + ((corner_index >> 2) & 1),
-                            iy + ((corner_index >> 1) & 1),
-                            iz + (corner_index & 1),
-                        )
-                        for axis in range(3):
-                            other_index = corner_index ^ (1 << (2 - axis))
-                            if other_index <= corner_index:
-                                continue
-                            other = (
-                                ix + ((other_index >> 2) & 1),
-                                iy + ((other_index >> 1) & 1),
-                                iz + (other_index & 1),
-                            )
-                            edge = tuple(sorted((base, other)))
-                            if edge in edges:
-                                continue
-                            edges.add(edge)
-                            dash_on, dash_off = cell_dash if cell_dash is not None else (None, 0)
-                            self._draw_line(
-                                local_corners[corner_index],
-                                local_corners[other_index],
-                                color,
-                                dash_on=dash_on,
-                                dash_off=dash_off,
-                                line_width=cell_line_width,
-                            )
+        dash_on, dash_off = cell_dash if cell_dash is not None else (None, 0)
+        for i in range(8):
+            for axis in range(3):
+                j = i ^ (1 << (2 - axis))
+                if j > i:
+                    self._draw_line(
+                        corners[i],
+                        corners[j],
+                        color,
+                        dash_on=dash_on,
+                        dash_off=dash_off,
+                        line_width=cell_line_width,
+                    )
 
     def render_molecule(
         self,
@@ -606,7 +583,7 @@ class ImageRenderer:
         highlighted_atoms: set[int] | None = None,
         licorice: bool = False,
         vdw: bool = False,
-        cell_dims: tuple[int, int, int] = (1, 1, 1),
+        show_cell: bool = True,
         cell_dash: tuple[int, int] | None = None,
         cell_line_width: int = 1,
     ):
@@ -635,7 +612,7 @@ class ImageRenderer:
                 rot,
                 camera_distance,
                 pan,
-                cell_dims,
+                show_cell,
                 cell_dash,
                 cell_line_width,
             )
@@ -692,7 +669,7 @@ def render_scene(
     shininess: float | None = None,
     atom_scale: float | None = None,
     bond_radius: float | None = None,
-    cell_dims: tuple[int, int, int] = (1, 1, 1),
+    show_cell: bool = True,
     cell_dash: tuple[int, int] | None = None,
     cell_line_width: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -723,7 +700,7 @@ def render_scene(
         highlighted_atoms=highlighted_atoms,
         licorice=licorice,
         vdw=vdw,
-        cell_dims=cell_dims,
+        show_cell=show_cell,
         cell_dash=cell_dash,
         cell_line_width=cell_line_width,
     )

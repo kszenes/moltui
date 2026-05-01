@@ -240,36 +240,6 @@ class Molecule:
                     results.append((i, j, k, l, angle))
         return results
 
-    def supercell(self, nx: int, ny: int, nz: int) -> "Molecule":
-        """Tile the unit cell into an ``nx * ny * nz`` supercell.
-
-        Atom positions are replicated at ``i*a + j*b + k*c`` for
-        ``i ∈ [0, nx)``, ``j ∈ [0, ny)``, ``k ∈ [0, nz)``. The returned
-        molecule's lattice is scaled accordingly. Bonds are recomputed.
-        Returns ``self`` if dimensions are ``(1, 1, 1)`` or no lattice.
-        """
-        if nx < 1 or ny < 1 or nz < 1:
-            raise ValueError("supercell dimensions must be >= 1")
-        if (nx, ny, nz) == (1, 1, 1) or self.lattice is None:
-            return self
-
-        from itertools import product
-
-        new_atoms: list[Atom] = []
-        for i, j, k in product(range(nx), range(ny), range(nz)):
-            disp = i * self.lattice[0] + j * self.lattice[1] + k * self.lattice[2]
-            for atom in self.atoms:
-                new_atoms.append(Atom(element=atom.element, position=atom.position + disp))
-
-        new_lattice = self.lattice.copy()
-        new_lattice[0] *= nx
-        new_lattice[1] *= ny
-        new_lattice[2] *= nz
-
-        replicated = Molecule(atoms=new_atoms, bonds=[], lattice=new_lattice)
-        replicated.detect_bonds_periodic()
-        return replicated
-
     def with_bonded_periodic_images(
         self, tol: float = 1e-3, bond_tolerance: float = 1.3
     ) -> "Molecule":

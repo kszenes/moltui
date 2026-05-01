@@ -107,15 +107,12 @@ def _export_render_kwargs(view: "MoleculeView") -> ExportRenderKwargs:
 
 def _build_view_render_scene(
     view: "MoleculeView",
-) -> tuple[Molecule, list[IsosurfaceMesh] | None, tuple[int, int, int]]:
+) -> tuple[Molecule, list[IsosurfaceMesh] | None, bool]:
     """Build the molecule/isosurface scene shared by live rendering and export."""
     if view.molecule is None:
         raise ValueError("view must have a molecule before rendering")
 
     mol = view.molecule
-    if mol.lattice is not None and view.supercell_dims != (1, 1, 1):
-        nx, ny, nz = view.supercell_dims
-        mol = mol.supercell(nx, ny, nz)
     if mol.lattice is not None and view.show_replication:
         mol = mol.with_bonded_periodic_images()
 
@@ -126,8 +123,7 @@ def _build_view_render_scene(
         mol = Molecule(atoms=mol.atoms, bonds=mol.bonds, lattice=cell_lattice)
 
     isos = view.isosurfaces if view.show_orbitals else None
-    cell_dims = view.supercell_dims if view.show_cell else (1, 1, 1)
-    return mol, isos, cell_dims
+    return mol, isos, view.show_cell
 
 
 def _compute_mo_isosurfaces(
@@ -207,7 +203,6 @@ class MoleculeView(Widget):
         self.show_bonds = True
         self.show_cell = True
         self.show_replication = True
-        self.supercell_dims: tuple[int, int, int] = (1, 1, 1)
         self.show_orbitals = True
         self.dark_bg = True
         self.pan_x = 0.0
@@ -274,7 +269,7 @@ class MoleculeView(Widget):
         bg = (0, 0, 0) if self.dark_bg else (255, 255, 255)
         rot = self.rot_matrix
 
-        mol, isos, cell_dims = _build_view_render_scene(self)
+        mol, isos, show_cell = _build_view_render_scene(self)
         hl: set[int] | None = None
         if self.highlighted_display_positions:
             hl_set = {
@@ -304,7 +299,7 @@ class MoleculeView(Widget):
             shininess=self.shininess,
             atom_scale=self.atom_scale,
             bond_radius=self.bond_radius,
-            cell_dims=cell_dims,
+            show_cell=show_cell,
         )
 
         blocks = pixels.reshape(rows, 4, cols, 2, 3)
@@ -719,7 +714,6 @@ class MoltuiApp(App):
             trajectory_fps=1.0 / self._playback_interval_sec,
             has_lattice=view.molecule is not None and view.molecule.lattice is not None,
             show_cell=view.show_cell,
-            supercell_n=view.supercell_dims[0],
         )
 
     def _has_animation(self) -> bool:
@@ -994,7 +988,7 @@ class MoltuiApp(App):
         if view.molecule is None:
             return
 
-        mol, isos, cell_dims = _build_view_render_scene(view)
+        mol, isos, show_cell = _build_view_render_scene(view)
 
         export_w, export_h = 1600, 1200
         bg = (0, 0, 0) if view.dark_bg else (255, 255, 255)
@@ -1008,7 +1002,7 @@ class MoltuiApp(App):
             view.camera_distance,
             bg_color=bg,
             isosurfaces=isos,
-            cell_dims=cell_dims,
+            show_cell=show_cell,
             **_export_render_kwargs(view),
         )
 
@@ -1374,8 +1368,6 @@ class MoltuiApp(App):
     def on_visual_panel_cell_changed(self, event: VisualPanel.CellChanged) -> None:
         view = self.query_one(MoleculeView)
         view.show_cell = event.show_cell
-        n = max(1, min(3, event.supercell_n))
-        view.supercell_dims = (n, n, n)
         view.highlighted_display_positions = set()
         view._invalidate_cache()
 

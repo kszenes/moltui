@@ -205,10 +205,9 @@ class VisualPanel(Widget):
             self.trajectory_fps = trajectory_fps
 
     class CellChanged(Message):
-        def __init__(self, show_cell: bool, supercell_n: int) -> None:
+        def __init__(self, show_cell: bool) -> None:
             super().__init__()
             self.show_cell = show_cell
-            self.supercell_n = supercell_n
 
     def __init__(self) -> None:
         super().__init__()
@@ -238,7 +237,6 @@ class VisualPanel(Widget):
         trajectory_fps: float = 12.0,
         has_lattice: bool = False,
         show_cell: bool = True,
-        supercell_n: int = 1,
     ) -> None:
         self._licorice = licorice
         self._vdw = vdw
@@ -258,7 +256,6 @@ class VisualPanel(Widget):
                 vibrational_phase_step=vibrational_phase_step,
                 trajectory_fps=trajectory_fps,
                 show_cell=show_cell,
-                supercell_n=supercell_n,
             )
 
     def _sync_widgets(
@@ -274,7 +271,6 @@ class VisualPanel(Widget):
         vibrational_phase_step: float = 0.30,
         trajectory_fps: float = 12.0,
         show_cell: bool = True,
-        supercell_n: int = 1,
     ) -> None:
         radio_set = self.query_one(_NavRadioSet)
         if self._licorice:
@@ -294,7 +290,6 @@ class VisualPanel(Widget):
         self.query_one("#slider-vibrational-speed", Slider).value = vibrational_phase_step
         self.query_one("#slider-trajectory-speed", Slider).value = trajectory_fps
         self.query_one("#checkbox-show-cell", Toggle).value = show_cell
-        self.query_one("#slider-supercell", Slider).value = float(supercell_n)
         self._update_visibility()
         self.refresh()
 
@@ -380,15 +375,6 @@ class VisualPanel(Widget):
         )
         yield Label("Periodic", id="label-periodic")
         yield Toggle("Show Box", value=True, id="checkbox-show-cell")
-        yield Slider(
-            "Supercell",
-            value=1.0,
-            min_val=1.0,
-            max_val=3.0,
-            step=1.0,
-            decimals=0,
-            id="slider-supercell",
-        )
         yield Static(
             "n/p nav; (shift-)tab toggle",
             id="visual-help",
@@ -407,7 +393,6 @@ class VisualPanel(Widget):
         )
         self.query_one("#label-periodic", Label).display = self._has_lattice
         self.query_one("#checkbox-show-cell", Toggle).display = self._has_lattice
-        self.query_one("#slider-supercell", Slider).display = self._has_lattice
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         self._licorice = event.pressed.id == "radio-licorice"
@@ -417,8 +402,7 @@ class VisualPanel(Widget):
 
     def on_toggle_changed(self, event: Toggle.Changed) -> None:
         if event.toggle.id == "checkbox-show-cell":
-            n = int(self.query_one("#slider-supercell", Slider).value)
-            self.post_message(self.CellChanged(bool(event.value), n))
+            self.post_message(self.CellChanged(bool(event.value)))
 
     def on_slider_changed(self, event: Slider.Changed) -> None:
         sid = event.slider.id or ""
@@ -428,9 +412,6 @@ class VisualPanel(Widget):
             self.post_message(self.VibrationSpeedChanged(event.value))
         elif sid == "slider-trajectory-speed":
             self.post_message(self.TrajectorySpeedChanged(event.value))
-        elif sid == "slider-supercell":
-            show = self.query_one("#checkbox-show-cell", Toggle).value
-            self.post_message(self.CellChanged(bool(show), int(event.value)))
         elif sid.startswith("slider-atom") or sid.startswith("slider-bond"):
             self.post_message(
                 self.SizeChanged(

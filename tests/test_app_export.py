@@ -64,11 +64,10 @@ def test_build_view_render_scene_includes_periodic_ghosts_for_export_path():
         show_replication=True,
         show_cell=True,
         show_bonds=True,
-        supercell_dims=(1, 1, 1),
     )
 
-    render_mol, isos, cell_dims = _build_view_render_scene(view)
+    render_mol, isos, show_cell = _build_view_render_scene(view)
 
     assert len(render_mol.bonds) == 36
     assert isos is None
-    assert cell_dims == (1, 1, 1)
+    assert show_cell is True

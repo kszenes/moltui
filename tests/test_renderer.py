@@ -217,32 +217,6 @@ class TestRenderScene:
         )
         assert hit.any()
 
-    def test_supercell_cell_grid_draws_more_edges_than_single_cell(self):
-        lattice = np.diag([4.0, 4.0, 4.0])
-        renderer = ImageRenderer(120, 90)
-        renderer._render_cell(
-            lattice,
-            centroid=np.array([2.0, 2.0, 2.0]),
-            rot=rotation_matrix(0, 0, 0),
-            camera_distance=10.0,
-            pan=(0.0, 0.0),
-            cell_dims=(1, 1, 1),
-        )
-        single_hits = np.isfinite(renderer.z_buf).sum()
-
-        renderer = ImageRenderer(120, 90)
-        renderer._render_cell(
-            lattice,
-            centroid=np.array([2.0, 2.0, 2.0]),
-            rot=rotation_matrix(0, 0, 0),
-            camera_distance=10.0,
-            pan=(0.0, 0.0),
-            cell_dims=(2, 1, 1),
-        )
-        split_hits = np.isfinite(renderer.z_buf).sum()
-
-        assert split_hits > single_hits
-
     def test_periodic_anchor_is_stable_with_ghost_images(self):
         H = get_element("H")
         mol = Molecule(
@@ -291,7 +265,6 @@ class TestBondRasterization:
             rot=rotation_matrix(0, 0, 0),
             camera_distance=10.0,
             pan=(0.0, 0.0),
-            cell_dims=(1, 1, 1),
         )
         solid_hits = np.isfinite(solid.z_buf).sum()
 
@@ -302,7 +275,6 @@ class TestBondRasterization:
             rot=rotation_matrix(0, 0, 0),
             camera_distance=10.0,
             pan=(0.0, 0.0),
-            cell_dims=(1, 1, 1),
             cell_dash=(5, 3),
         )
         dashed_hits = np.isfinite(dashed.z_buf).sum()
@@ -318,7 +290,6 @@ class TestBondRasterization:
             rot=rotation_matrix(0, 0, 0),
             camera_distance=10.0,
             pan=(0.0, 0.0),
-            cell_dims=(1, 1, 1),
             cell_dash=(5, 3),
             cell_line_width=1,
         )
@@ -331,7 +302,6 @@ class TestBondRasterization:
             rot=rotation_matrix(0, 0, 0),
             camera_distance=10.0,
             pan=(0.0, 0.0),
-            cell_dims=(1, 1, 1),
             cell_dash=(5, 3),
             cell_line_width=2,
         )

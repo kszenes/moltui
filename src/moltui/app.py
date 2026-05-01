@@ -598,7 +598,7 @@ class MoltuiApp(App):
             if not geom.has_class("visible"):
                 return False
         if action in ("cycle_view_mode_next", "cycle_view_mode_prev"):
-            if len(self._available_view_modes()) <= 1 and not self._panel_hidden:
+            if len(self._available_view_modes()) <= 1 and self._mode_panel_active():
                 return False
         return True
 
@@ -1143,6 +1143,7 @@ class MoltuiApp(App):
             or mode_panel.has_class("visible")
             or vis.has_class("visible")
         ):
+            self._sidebar_was_visual = vis.has_class("visible")
             self._close_panels()
             self._panel_hidden = True
             view = self.query_one(MoleculeView)
@@ -1152,6 +1153,10 @@ class MoltuiApp(App):
     def action_toggle_sidebar(self) -> None:
         if self._panel_is_open():
             self.action_close_panel()
+            return
+        if getattr(self, "_sidebar_was_visual", False):
+            self._sidebar_was_visual = False
+            self.action_toggle_visual()
             return
         self._set_view_mode(self._view_mode, reveal_panel=True)
 
@@ -1173,10 +1178,32 @@ class MoltuiApp(App):
         if vis.has_class("visible"):
             vis.remove_class("visible")
 
+    def _mode_panel_active(self) -> bool:
+        """True when the panel for the current view mode is visible.
+
+        The visual panel is a separate sidebar and is not counted as the
+        "mode panel"; cycling should still surface the mode panel even if
+        the visual panel happens to be open.
+        """
+        if self._panel_hidden:
+            return False
+        try:
+            if self._view_mode == _VIEW_GEOMETRY:
+                return self.query_one(GeometryPanel).has_class("visible")
+            if self._view_mode == _VIEW_MO:
+                return self.query_one(MOPanel).has_class("visible")
+            if self._view_mode == _VIEW_NORMAL:
+                return self.query_one(NormalModePanel).has_class("visible")
+        except NoMatches:
+            return False
+        return False
+
     def action_cycle_view_mode_next(self) -> None:
         modes = self._available_view_modes()
+        if not modes:
+            return
         if len(modes) <= 1:
-            if self._panel_hidden and modes:
+            if not self._mode_panel_active():
                 self._set_view_mode(modes[0], reveal_panel=True)
             return
         idx = modes.index(self._view_mode) if self._view_mode in modes else 0
@@ -1184,8 +1211,10 @@ class MoltuiApp(App):
 
     def action_cycle_view_mode_prev(self) -> None:
         modes = self._available_view_modes()
+        if not modes:
+            return
         if len(modes) <= 1:
-            if self._panel_hidden and modes:
+            if not self._mode_panel_active():
                 self._set_view_mode(modes[0], reveal_panel=True)
             return
         idx = modes.index(self._view_mode) if self._view_mode in modes else 0

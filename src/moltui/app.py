@@ -83,6 +83,8 @@ class ExportRenderKwargs(TypedDict):
     shininess: float
     atom_scale: float
     bond_radius: float
+    cell_dash: tuple[int, int] | None
+    cell_line_width: int
 
 
 def _export_render_kwargs(view: "MoleculeView") -> ExportRenderKwargs:
@@ -98,7 +100,34 @@ def _export_render_kwargs(view: "MoleculeView") -> ExportRenderKwargs:
         "shininess": view.shininess,
         "atom_scale": view.atom_scale,
         "bond_radius": view.bond_radius,
+        "cell_dash": (5, 3),
+        "cell_line_width": 2,
     }
+
+
+def _build_view_render_scene(
+    view: "MoleculeView",
+) -> tuple[Molecule, list[IsosurfaceMesh] | None, tuple[int, int, int]]:
+    """Build the molecule/isosurface scene shared by live rendering and export."""
+    if view.molecule is None:
+        raise ValueError("view must have a molecule before rendering")
+
+    mol = view.molecule
+    if mol.lattice is not None and view.supercell_dims != (1, 1, 1):
+        nx, ny, nz = view.supercell_dims
+        mol = mol.supercell(nx, ny, nz)
+    if mol.lattice is not None and view.show_replication:
+        mol = mol.with_bonded_periodic_images()
+
+    cell_lattice = mol.lattice if view.show_cell else None
+    if not view.show_bonds:
+        mol = Molecule(atoms=mol.atoms, bonds=[], lattice=cell_lattice)
+    elif cell_lattice is not mol.lattice:
+        mol = Molecule(atoms=mol.atoms, bonds=mol.bonds, lattice=cell_lattice)
+
+    isos = view.isosurfaces if view.show_orbitals else None
+    cell_dims = view.supercell_dims if view.show_cell else (1, 1, 1)
+    return mol, isos, cell_dims
 
 
 def _compute_mo_isosurfaces(
@@ -245,19 +274,7 @@ class MoleculeView(Widget):
         bg = (0, 0, 0) if self.dark_bg else (255, 255, 255)
         rot = self.rot_matrix
 
-        mol = self.molecule
-        if mol.lattice is not None and self.supercell_dims != (1, 1, 1):
-            nx, ny, nz = self.supercell_dims
-            mol = mol.supercell(nx, ny, nz)
-        if mol.lattice is not None and self.show_replication:
-            mol = mol.with_bonded_periodic_images()
-        cell_lattice = mol.lattice if self.show_cell else None
-        if not self.show_bonds:
-            mol = Molecule(atoms=mol.atoms, bonds=[], lattice=cell_lattice)
-        elif cell_lattice is not mol.lattice:
-            mol = Molecule(atoms=mol.atoms, bonds=mol.bonds, lattice=cell_lattice)
-
-        isos = self.isosurfaces if self.show_orbitals else None
+        mol, isos, cell_dims = _build_view_render_scene(self)
         hl: set[int] | None = None
         if self.highlighted_display_positions:
             hl_set = {
@@ -287,7 +304,7 @@ class MoleculeView(Widget):
             shininess=self.shininess,
             atom_scale=self.atom_scale,
             bond_radius=self.bond_radius,
-            cell_dims=self.supercell_dims if self.show_cell else (1, 1, 1),
+            cell_dims=cell_dims,
         )
 
         blocks = pixels.reshape(rows, 4, cols, 2, 3)
@@ -977,10 +994,7 @@ class MoltuiApp(App):
         if view.molecule is None:
             return
 
-        mol = view.molecule
-        if not view.show_bonds:
-            mol = Molecule(atoms=mol.atoms, bonds=[])
-        isos = self._isosurfaces if view.show_orbitals else None
+        mol, isos, cell_dims = _build_view_render_scene(view)
 
         export_w, export_h = 1600, 1200
         bg = (0, 0, 0) if view.dark_bg else (255, 255, 255)
@@ -994,6 +1008,7 @@ class MoltuiApp(App):
             view.camera_distance,
             bg_color=bg,
             isosurfaces=isos,
+            cell_dims=cell_dims,
             **_export_render_kwargs(view),
         )
 

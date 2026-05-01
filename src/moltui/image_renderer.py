@@ -471,6 +471,10 @@ class ImageRenderer:
         p1: np.ndarray,
         p2: np.ndarray,
         color: tuple[int, int, int],
+        *,
+        dash_on: int | None = None,
+        dash_off: int = 0,
+        line_width: int = 1,
     ):
         """Draw a single-pixel-wide 3D line with z-buffer testing."""
         sx1, sy1, sz1 = self._project(p1)
@@ -488,6 +492,28 @@ class ImageRenderer:
         xs = np.round(sx1 + dx * ts).astype(int)
         ys = np.round(sy1 + dy * ts).astype(int)
         zs = sz1 + (sz2 - sz1) * ts
+
+        if line_width > 1:
+            radius = line_width - 1
+            expanded_xs: list[np.ndarray] = []
+            expanded_ys: list[np.ndarray] = []
+            expanded_zs: list[np.ndarray] = []
+            for ox in range(-radius, radius + 1):
+                for oy in range(-radius, radius + 1):
+                    expanded_xs.append(xs + ox)
+                    expanded_ys.append(ys + oy)
+                    expanded_zs.append(zs)
+            xs = np.concatenate(expanded_xs)
+            ys = np.concatenate(expanded_ys)
+            zs = np.concatenate(expanded_zs)
+
+        if dash_on is not None and dash_on > 0:
+            period = dash_on + max(0, dash_off)
+            if period > 0:
+                dash_mask = (np.arange(xs.size) % period) < dash_on
+                xs, ys, zs = xs[dash_mask], ys[dash_mask], zs[dash_mask]
+                if xs.size == 0:
+                    return
 
         valid = (xs >= 0) & (xs < self.width) & (ys >= 0) & (ys < self.height)
         xs, ys, zs = xs[valid], ys[valid], zs[valid]
@@ -510,6 +536,8 @@ class ImageRenderer:
         camera_distance: float,
         pan: tuple[float, float],
         cell_dims: tuple[int, int, int] = (1, 1, 1),
+        cell_dash: tuple[int, int] | None = None,
+        cell_line_width: int = 1,
     ):
         """Draw the unit-cell wireframe.
 
@@ -558,8 +586,14 @@ class ImageRenderer:
                             if edge in edges:
                                 continue
                             edges.add(edge)
+                            dash_on, dash_off = cell_dash if cell_dash is not None else (None, 0)
                             self._draw_line(
-                                local_corners[corner_index], local_corners[other_index], color
+                                local_corners[corner_index],
+                                local_corners[other_index],
+                                color,
+                                dash_on=dash_on,
+                                dash_off=dash_off,
+                                line_width=cell_line_width,
                             )
 
     def render_molecule(
@@ -573,6 +607,8 @@ class ImageRenderer:
         licorice: bool = False,
         vdw: bool = False,
         cell_dims: tuple[int, int, int] = (1, 1, 1),
+        cell_dash: tuple[int, int] | None = None,
+        cell_line_width: int = 1,
     ):
         self.clear()
         if not molecule.atoms:
@@ -593,7 +629,16 @@ class ImageRenderer:
                 self.render_isosurface(mesh, rot, camera_distance, centroid, pan)
 
         if molecule.lattice is not None:
-            self._render_cell(molecule.lattice, centroid, rot, camera_distance, pan, cell_dims)
+            self._render_cell(
+                molecule.lattice,
+                centroid,
+                rot,
+                camera_distance,
+                pan,
+                cell_dims,
+                cell_dash,
+                cell_line_width,
+            )
 
         transformed = []
         for atom in molecule.atoms:
@@ -648,6 +693,8 @@ def render_scene(
     atom_scale: float | None = None,
     bond_radius: float | None = None,
     cell_dims: tuple[int, int, int] = (1, 1, 1),
+    cell_dash: tuple[int, int] | None = None,
+    cell_line_width: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Render with supersampling anti-aliasing.
 
@@ -677,6 +724,8 @@ def render_scene(
         licorice=licorice,
         vdw=vdw,
         cell_dims=cell_dims,
+        cell_dash=cell_dash,
+        cell_line_width=cell_line_width,
     )
     hit = np.isfinite(r.z_buf)
     if ssaa == 1:

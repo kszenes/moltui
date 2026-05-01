@@ -243,8 +243,102 @@ class TestRenderScene:
 
         assert split_hits > single_hits
 
+    def test_periodic_anchor_is_stable_with_ghost_images(self):
+        H = get_element("H")
+        mol = Molecule(
+            atoms=[
+                Atom(H, np.array([0.0, 0.0, 0.0])),
+                Atom(H, np.array([1.9, 0.0, 0.0])),
+            ],
+            bonds=[],
+            lattice=np.diag([2.0, 2.0, 2.0]),
+        )
+        mol.detect_bonds_periodic()
+        augmented = mol.with_bonded_periodic_images()
+        rot = rotation_matrix(0, 0, 0)
+
+        _, hit_base = render_scene(80, 60, mol, rot, 6.0, ssaa=1)
+        _, hit_aug = render_scene(80, 60, augmented, rot, 6.0, ssaa=1)
+
+        ys_base, xs_base = np.where(hit_base)
+        ys_aug, xs_aug = np.where(hit_aug)
+        assert abs(xs_base.mean() - xs_aug.mean()) < 1.0
+        assert abs(ys_base.mean() - ys_aug.mean()) < 3.0
+
 
 class TestBondRasterization:
+    def test_dashed_line_draws_fewer_pixels_than_solid_line(self):
+        p1 = np.array([-1.0, 0.0, 5.0])
+        p2 = np.array([1.0, 0.0, 5.0])
+
+        solid = ImageRenderer(120, 80)
+        solid._draw_line(p1, p2, (255, 255, 255))
+        solid_hits = np.isfinite(solid.z_buf).sum()
+
+        dashed = ImageRenderer(120, 80)
+        dashed._draw_line(p1, p2, (255, 255, 255), dash_on=5, dash_off=3)
+        dashed_hits = np.isfinite(dashed.z_buf).sum()
+
+        assert dashed_hits > 0
+        assert dashed_hits < solid_hits
+
+    def test_cell_edges_are_solid_by_default(self):
+        lattice = np.diag([4.0, 4.0, 4.0])
+        solid = ImageRenderer(120, 90)
+        solid._render_cell(
+            lattice,
+            centroid=np.array([2.0, 2.0, 2.0]),
+            rot=rotation_matrix(0, 0, 0),
+            camera_distance=10.0,
+            pan=(0.0, 0.0),
+            cell_dims=(1, 1, 1),
+        )
+        solid_hits = np.isfinite(solid.z_buf).sum()
+
+        dashed = ImageRenderer(120, 90)
+        dashed._render_cell(
+            lattice,
+            centroid=np.array([2.0, 2.0, 2.0]),
+            rot=rotation_matrix(0, 0, 0),
+            camera_distance=10.0,
+            pan=(0.0, 0.0),
+            cell_dims=(1, 1, 1),
+            cell_dash=(5, 3),
+        )
+        dashed_hits = np.isfinite(dashed.z_buf).sum()
+
+        assert dashed_hits < solid_hits
+
+    def test_thicker_cell_edges_draw_more_pixels(self):
+        lattice = np.diag([4.0, 4.0, 4.0])
+        thin = ImageRenderer(120, 90)
+        thin._render_cell(
+            lattice,
+            centroid=np.array([2.0, 2.0, 2.0]),
+            rot=rotation_matrix(0, 0, 0),
+            camera_distance=10.0,
+            pan=(0.0, 0.0),
+            cell_dims=(1, 1, 1),
+            cell_dash=(5, 3),
+            cell_line_width=1,
+        )
+        thin_hits = np.isfinite(thin.z_buf).sum()
+
+        thick = ImageRenderer(120, 90)
+        thick._render_cell(
+            lattice,
+            centroid=np.array([2.0, 2.0, 2.0]),
+            rot=rotation_matrix(0, 0, 0),
+            camera_distance=10.0,
+            pan=(0.0, 0.0),
+            cell_dims=(1, 1, 1),
+            cell_dash=(5, 3),
+            cell_line_width=2,
+        )
+        thick_hits = np.isfinite(thick.z_buf).sum()
+
+        assert thick_hits > thin_hits
+
     def test_bond_keeps_nearest_depth_per_pixel_when_samples_overlap(self):
         r = ImageRenderer(120, 80)
         r.bond_radius = 0.22

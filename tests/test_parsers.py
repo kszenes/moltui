@@ -400,6 +400,17 @@ class TestParseCIF:
         assert np.allclose(positions[2], [0.0, 0.0, 3.355], atol=1e-3)
         assert np.allclose(positions[3], [1.23, 0.710141, 3.355], atol=1e-3)
 
+    def test_graphite_periodic_bonds_end_to_end(self, tmp_path: Path):
+        path = tmp_path / "graphite.cif"
+        path.write_text(GRAPHITE_CIF)
+        mol = parse_cif(path)
+
+        assert mol.bond_shifts is not None
+        assert len(mol.bonds) == 6
+        assert len(mol.bond_shifts) == 6
+        lengths = [dist for _, _, dist in mol.get_bond_lengths()]
+        assert lengths == pytest.approx([1.4203] * 6, abs=1e-4)
+
     def test_cartesian_no_cell(self, tmp_path: Path):
         path = tmp_path / "h2.cif"
         path.write_text(

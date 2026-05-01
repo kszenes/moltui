@@ -522,23 +522,45 @@ class ImageRenderer:
         unit_b = lattice[1] / ny
         unit_c = lattice[2] / nz
 
-        corners = []
-        for c0 in (0.0, 1.0):
-            for c1 in (0.0, 1.0):
-                for c2 in (0.0, 1.0):
-                    world = c0 * unit_a + c1 * unit_b + c2 * unit_c
-                    p = rot @ (world - centroid)
-                    p[0] += pan[0]
-                    p[1] += pan[1]
-                    p[2] += camera_distance
-                    corners.append(p)
-
         color = (150, 150, 150)
-        for i in range(8):
-            for axis in range(3):
-                j = i ^ (1 << (2 - axis))
-                if j > i:
-                    self._draw_line(corners[i], corners[j], color)
+        edges: set[tuple[tuple[int, int, int], tuple[int, int, int]]] = set()
+        for ix in range(nx):
+            for iy in range(ny):
+                for iz in range(nz):
+                    origin = ix * unit_a + iy * unit_b + iz * unit_c
+                    local_corners = []
+                    for c0 in (0.0, 1.0):
+                        for c1 in (0.0, 1.0):
+                            for c2 in (0.0, 1.0):
+                                world = origin + c0 * unit_a + c1 * unit_b + c2 * unit_c
+                                p = rot @ (world - centroid)
+                                p[0] += pan[0]
+                                p[1] += pan[1]
+                                p[2] += camera_distance
+                                local_corners.append(p)
+
+                    for corner_index in range(8):
+                        base = (
+                            ix + ((corner_index >> 2) & 1),
+                            iy + ((corner_index >> 1) & 1),
+                            iz + (corner_index & 1),
+                        )
+                        for axis in range(3):
+                            other_index = corner_index ^ (1 << (2 - axis))
+                            if other_index <= corner_index:
+                                continue
+                            other = (
+                                ix + ((other_index >> 2) & 1),
+                                iy + ((other_index >> 1) & 1),
+                                iz + (other_index & 1),
+                            )
+                            edge = tuple(sorted((base, other)))
+                            if edge in edges:
+                                continue
+                            edges.add(edge)
+                            self._draw_line(
+                                local_corners[corner_index], local_corners[other_index], color
+                            )
 
     def render_molecule(
         self,

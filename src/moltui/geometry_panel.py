@@ -9,28 +9,10 @@ from textual.widgets import DataTable, TabbedContent, TabPane
 from .elements import Molecule
 
 
-def _parse_row_key(
-    value: str,
-) -> tuple[tuple[int, ...], tuple[tuple[int, int, int], ...] | None]:
-    """Parse a geometry-panel row key into atom indices and optional shift.
-
-    Format: ``i-j[-k[-l]]#row_idx[;sx,sy,sz]``. The shift, when present,
-    applies to the second atom (j) of a periodic bond; the first atom is
-    always the in-cell atom.
-    """
-    head = value.split("#", 1)
-    atom_part = head[0]
-    indices = tuple(int(x) for x in atom_part.split("-"))
-    shifts: tuple[tuple[int, int, int], ...] | None = None
-    if len(head) > 1:
-        rest = head[1]
-        if ";" in rest:
-            shift_str = rest.split(";", 1)[1]
-            parts = shift_str.split(",")
-            if len(parts) == 3:
-                s = (int(parts[0]), int(parts[1]), int(parts[2]))
-                shifts = tuple((0, 0, 0) if k == 0 else s for k in range(len(indices)))
-    return indices, shifts
+def _parse_row_key(value: str) -> tuple[int, ...]:
+    """Parse a geometry-panel row key into atom indices."""
+    atom_part = value.split("#", 1)[0]
+    return tuple(int(x) for x in atom_part.split("-"))
 
 
 class GeometryPanel(Widget):
@@ -55,16 +37,9 @@ class GeometryPanel(Widget):
     """
 
     class HighlightAtoms(Message):
-        def __init__(
-            self,
-            atom_indices: tuple[int, ...],
-            image_shifts: tuple[tuple[int, int, int], ...] | None = None,
-        ) -> None:
+        def __init__(self, atom_indices: tuple[int, ...]) -> None:
             super().__init__()
             self.atom_indices = atom_indices
-            # Per-index integer cell shift; (0, 0, 0) means highlight the
-            # in-cell atom. Length must match atom_indices when set.
-            self.image_shifts = image_shifts
 
     def __init__(self) -> None:
         super().__init__()
@@ -78,10 +53,17 @@ class GeometryPanel(Widget):
         }
 
     def set_molecule(self, molecule: Molecule, parent_indices: list[int] | None = None) -> None:
+        selected_row_keys: dict[str, str | None] | None = None
+        if self.is_mounted and self._molecule is not None:
+            tab_ids = ("tab-bonds", "tab-angles", "tab-dihedrals")
+            selected_row_keys = {
+                tab_id: self._current_row_key_value(self._table_for_tab(tab_id))
+                for tab_id in tab_ids
+            }
         self._molecule = molecule
         self._parent_indices = parent_indices
         if self.is_mounted:
-            self._populate_tables()
+            self._populate_tables(selected_row_keys)
 
     def refresh_measurements(self) -> None:
         """Recompute displayed geometry values while preserving table selection."""
@@ -239,8 +221,7 @@ class GeometryPanel(Widget):
             return
         rk = list(dt.rows.keys())[dt.cursor_row]
         if rk.value is not None:
-            indices, shifts = _parse_row_key(rk.value)
-            self.post_message(self.HighlightAtoms(indices, shifts))
+            self.post_message(self.HighlightAtoms(_parse_row_key(rk.value)))
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         """Focus the DataTable in the newly active tab and highlight its row."""
@@ -261,5 +242,4 @@ class GeometryPanel(Widget):
             return
         if event.row_key is None or event.row_key.value is None:
             return
-        indices, shifts = _parse_row_key(event.row_key.value)
-        self.post_message(self.HighlightAtoms(indices, shifts))
+        self.post_message(self.HighlightAtoms(_parse_row_key(event.row_key.value)))

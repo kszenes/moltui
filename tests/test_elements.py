@@ -160,6 +160,23 @@ class TestAngles:
         )
         assert mol.get_angles() == []
 
+    def test_periodic_angle_uses_bond_shifts(self):
+        H = get_element("H")
+        lattice = np.diag([2.0, 2.0, 2.0])
+        mol = Molecule(
+            atoms=[
+                Atom(H, np.array([0.1, 0.1, 0.1])),
+                Atom(H, np.array([1.9, 0.1, 0.1])),
+                Atom(H, np.array([0.1, 1.0, 0.1])),
+            ],
+            bonds=[(0, 1), (0, 2)],
+            lattice=lattice,
+            bond_shifts=[(-1, 0, 0), (0, 0, 0)],
+        )
+        angles = mol.get_angles()
+        assert len(angles) == 1
+        assert angles[0][3] == pytest.approx(90.0, abs=0.5)
+
 
 class TestDihedrals:
     def test_butane_like_dihedral(self):
@@ -195,6 +212,33 @@ class TestDihedrals:
     def test_no_dihedrals_for_three_atoms(self):
         mol = _linear_triatomic()
         assert mol.get_dihedrals() == []
+
+    def test_periodic_dihedral_uses_bond_shifts(self):
+        C = get_element("C")
+        lattice = np.diag([2.0, 4.0, 4.0])
+        mol = Molecule(
+            atoms=[
+                Atom(C, np.array([0.0, 0.0, 0.0])),
+                Atom(C, np.array([1.0, 0.0, 0.0])),
+                Atom(C, np.array([1.5, 1.0, 0.0])),
+                Atom(C, np.array([0.5, 1.0, 0.5])),
+            ],
+            bonds=[(0, 1), (1, 2), (2, 3)],
+            lattice=lattice,
+            bond_shifts=[(0, 0, 0), (0, 0, 0), (1, 0, 0)],
+        )
+        reference = Molecule(
+            atoms=[
+                Atom(C, np.array([0.0, 0.0, 0.0])),
+                Atom(C, np.array([1.0, 0.0, 0.0])),
+                Atom(C, np.array([1.5, 1.0, 0.0])),
+                Atom(C, np.array([2.5, 1.0, 0.5])),
+            ],
+            bonds=[(0, 1), (1, 2), (2, 3)],
+        )
+        dihedrals = mol.get_dihedrals()
+        assert len(dihedrals) == 1
+        assert dihedrals[0][4] == pytest.approx(reference.get_dihedrals()[0][4], abs=0.5)
 
 
 class TestDetectBonds:
@@ -234,6 +278,20 @@ class TestDetectBonds:
         )
         mol.detect_bonds()
         assert len(mol.bonds) == 1
+
+    def test_detect_bonds_periodic_across_boundary(self):
+        H = get_element("H")
+        mol = Molecule(
+            atoms=[
+                Atom(H, np.array([0.0, 0.0, 0.0])),
+                Atom(H, np.array([1.9, 0.0, 0.0])),
+            ],
+            bonds=[],
+            lattice=np.diag([2.0, 2.0, 2.0]),
+        )
+        mol.detect_bonds_periodic()
+        assert mol.bonds == [(0, 1)]
+        assert mol.bond_shifts == [(-1, 0, 0)]
 
 
 class TestPeriodicImages:

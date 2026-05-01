@@ -113,6 +113,24 @@ def _compute_mo_isosurfaces(
     return extract_isosurfaces(cube_data, isovalue=isovalue)
 
 
+def _compute_parent_indices(base: Molecule, augmented: Molecule) -> list[int]:
+    """Map each augmented atom back to its originating in-cell atom index."""
+    if base.lattice is None:
+        return list(range(len(augmented.atoms)))
+    inv = np.linalg.inv(base.lattice)
+    ref = np.array([a.position @ inv for a in base.atoms], dtype=np.float64)
+    ref_mod = ref - np.floor(ref + 1e-6)
+    parents: list[int] = []
+    for atom in augmented.atoms:
+        frac = atom.position @ inv
+        frac_mod = frac - np.floor(frac + 1e-6)
+        delta = ref_mod - frac_mod
+        delta -= np.round(delta)
+        d2 = np.einsum("ij,ij->i", delta, delta)
+        parents.append(int(np.argmin(d2)))
+    return parents
+
+
 @dataclass
 class TrajectoryData:
     frames: np.ndarray  # (n_frames, n_atoms, 3)
@@ -186,20 +204,9 @@ class MoleculeView(Widget):
 
     def _compute_parent_indices(self, augmented: Molecule) -> list[int]:
         """For each atom in `augmented`, return the index of the in-cell parent."""
-        if self.molecule is None or self.molecule.lattice is None:
+        if self.molecule is None:
             return list(range(len(augmented.atoms)))
-        inv = np.linalg.inv(self.molecule.lattice)
-        ref = np.array([a.position @ inv for a in self.molecule.atoms], dtype=np.float64)
-        ref_mod = ref - np.floor(ref + 1e-6)
-        parents: list[int] = []
-        for atom in augmented.atoms:
-            frac = atom.position @ inv
-            frac_mod = frac - np.floor(frac + 1e-6)
-            delta = ref_mod - frac_mod
-            delta -= np.round(delta)
-            d2 = np.einsum("ij,ij->i", delta, delta)
-            parents.append(int(np.argmin(d2)))
-        return parents
+        return _compute_parent_indices(self.molecule, augmented)
 
     def render_line(self, y: int) -> Strip:
         w, h = self.size.width, self.size.height
@@ -476,26 +483,7 @@ class MoltuiApp(App):
         if mol.lattice is None:
             return mol, None
         augmented = mol.with_bonded_periodic_images()
-        # Map each augmented atom to the parent (in-cell) atom by matching
-        # fractional coordinates modulo 1.
-        inv = np.linalg.inv(mol.lattice)
-        in_cell_fracs = np.array([a.position @ inv for a in mol.atoms], dtype=np.float64)
-        parents: list[int] = []
-        for atom in augmented.atoms:
-            frac = atom.position @ inv
-            mod_frac = frac - np.floor(frac + 1e-6)
-            best = 0
-            best_d2 = float("inf")
-            for k, ref in enumerate(in_cell_fracs):
-                ref_mod = ref - np.floor(ref + 1e-6)
-                delta = mod_frac - ref_mod
-                delta -= np.round(delta)
-                d2 = float(delta @ delta)
-                if d2 < best_d2:
-                    best_d2 = d2
-                    best = k
-            parents.append(best)
-        return augmented, parents
+        return augmented, _compute_parent_indices(mol, augmented)
 
     def on_mount(self) -> None:
         view = self.query_one(MoleculeView)
@@ -709,7 +697,10 @@ class MoltuiApp(App):
         for i, atom in enumerate(self.molecule.atoms):
             atom.position = coords[i].copy()
         if recompute_bonds:
-            self.molecule.detect_bonds()
+            if self.molecule.lattice is not None:
+                self.molecule.detect_bonds_periodic()
+            else:
+                self.molecule.detect_bonds()
         view = self._query_molecule_view()
         if view is None:
             # Timer callbacks can race with app teardown in tests/CI.
@@ -718,7 +709,7 @@ class MoltuiApp(App):
         view._invalidate_cache()
         if self._view_mode == _VIEW_GEOMETRY:
             try:
-                self.query_one(GeometryPanel).refresh_measurements()
+                self._refresh_geometry_panel()
             except NoMatches:
                 self._stop_playback()
                 return
@@ -733,6 +724,8 @@ class MoltuiApp(App):
         view = self._query_molecule_view()
         if view is None:
             return
+        if self.molecule.lattice is not None:
+            self._refresh_geometry_panel()
         view._invalidate_cache()
         self._update_title()
 
@@ -1360,6 +1353,7 @@ class MoltuiApp(App):
         view.show_cell = event.show_cell
         n = max(1, min(3, event.supercell_n))
         view.supercell_dims = (n, n, n)
+        view.highlighted_targets = []
         view._invalidate_cache()
 
     def on_mopanel_moselected(self, event: MOPanel.MOSelected) -> None:

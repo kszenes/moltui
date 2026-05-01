@@ -167,6 +167,12 @@ class Molecule:
         distances = np.linalg.norm(positions - centroid, axis=1)
         return float(distances.max()) if len(distances) > 0 else 1.0
 
+    def _bond_displacement(self, bond_index: int) -> np.ndarray:
+        if self.bond_shifts is None or self.lattice is None or bond_index >= len(self.bond_shifts):
+            return np.zeros(3, dtype=np.float64)
+        s0, s1, s2 = self.bond_shifts[bond_index]
+        return s0 * self.lattice[0] + s1 * self.lattice[1] + s2 * self.lattice[2]
+
     def _adjacency(self) -> dict[int, list[int]]:
         adj: dict[int, list[int]] = {i: [] for i in range(len(self.atoms))}
         for i, j in self.bonds:
@@ -174,26 +180,33 @@ class Molecule:
             adj[j].append(i)
         return adj
 
+    def _directed_bond_vectors(self) -> dict[tuple[int, int], np.ndarray]:
+        """Map each bonded pair to the directed vector from atom i to atom j."""
+        directed: dict[tuple[int, int], np.ndarray] = {}
+        for bond_index, (i, j) in enumerate(self.bonds):
+            disp = self._bond_displacement(bond_index)
+            vec_ij = self.atoms[j].position + disp - self.atoms[i].position
+            directed[(i, j)] = vec_ij
+            directed[(j, i)] = -vec_ij
+        return directed
+
     def get_bond_lengths(self) -> list[tuple[int, int, float]]:
         results = []
-        shifts = self.bond_shifts
         for k, (i, j) in enumerate(self.bonds):
-            disp = np.zeros(3)
-            if shifts is not None and self.lattice is not None and k < len(shifts):
-                s0, s1, s2 = shifts[k]
-                disp = s0 * self.lattice[0] + s1 * self.lattice[1] + s2 * self.lattice[2]
+            disp = self._bond_displacement(k)
             dist = float(np.linalg.norm(self.atoms[j].position + disp - self.atoms[i].position))
             results.append((i, j, dist))
         return results
 
     def get_angles(self) -> list[tuple[int, int, int, float]]:
         adj = self._adjacency()
+        directed = self._directed_bond_vectors()
         results = []
         for j, neighbors in adj.items():
             for ni, i in enumerate(neighbors):
                 for k in neighbors[ni + 1 :]:
-                    v1 = self.atoms[i].position - self.atoms[j].position
-                    v2 = self.atoms[k].position - self.atoms[j].position
+                    v1 = directed[(j, i)]
+                    v2 = directed[(j, k)]
                     cos_a = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-10)
                     angle = float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
                     results.append((i, j, k, angle))
@@ -201,6 +214,7 @@ class Molecule:
 
     def get_dihedrals(self) -> list[tuple[int, int, int, int, float]]:
         adj = self._adjacency()
+        directed = self._directed_bond_vectors()
         results = []
         seen = set()
         for j, k in self.bonds:
@@ -214,9 +228,9 @@ class Molecule:
                     if key in seen:
                         continue
                     seen.add(key)
-                    b1 = self.atoms[j].position - self.atoms[i].position
-                    b2 = self.atoms[k].position - self.atoms[j].position
-                    b3 = self.atoms[l].position - self.atoms[k].position
+                    b1 = directed[(i, j)]
+                    b2 = directed[(j, k)]
+                    b3 = directed[(k, l)]
                     n1 = np.cross(b1, b2)
                     n2 = np.cross(b2, b3)
                     n1_norm = np.linalg.norm(n1) + 1e-10
@@ -253,7 +267,7 @@ class Molecule:
         new_lattice[2] *= nz
 
         replicated = Molecule(atoms=new_atoms, bonds=[], lattice=new_lattice)
-        replicated.detect_bonds()
+        replicated.detect_bonds_periodic()
         return replicated
 
     def with_bonded_periodic_images(

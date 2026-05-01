@@ -148,6 +148,10 @@ class Atom:
 class Molecule:
     atoms: list[Atom]
     bonds: list[tuple[int, int]]
+    lattice: np.ndarray | None = None  # (3, 3) row-vectors in Angstrom, or None
+    # Per-bond integer cell shift for the j atom relative to i; (0, 0, 0) when
+    # both ends are in the same cell. Length matches `bonds` when populated.
+    bond_shifts: list[tuple[int, int, int]] | None = None
 
     def center(self) -> np.ndarray:
         if not self.atoms:
@@ -163,6 +167,23 @@ class Molecule:
         distances = np.linalg.norm(positions - centroid, axis=1)
         return float(distances.max()) if len(distances) > 0 else 1.0
 
+    def with_in_cell_bonds(self) -> "Molecule":
+        """Return a copy with only bonds that stay within the unit cell."""
+        if self.lattice is None or self.bond_shifts is None:
+            return self
+        in_cell = [
+            bond
+            for bond, shift in zip(self.bonds, self.bond_shifts, strict=False)
+            if shift == (0, 0, 0)
+        ]
+        return Molecule(atoms=self.atoms, bonds=in_cell, lattice=self.lattice)
+
+    def _bond_displacement(self, bond_index: int) -> np.ndarray:
+        if self.bond_shifts is None or self.lattice is None or bond_index >= len(self.bond_shifts):
+            return np.zeros(3, dtype=np.float64)
+        s0, s1, s2 = self.bond_shifts[bond_index]
+        return s0 * self.lattice[0] + s1 * self.lattice[1] + s2 * self.lattice[2]
+
     def _adjacency(self) -> dict[int, list[int]]:
         adj: dict[int, list[int]] = {i: [] for i in range(len(self.atoms))}
         for i, j in self.bonds:
@@ -170,21 +191,33 @@ class Molecule:
             adj[j].append(i)
         return adj
 
+    def _directed_bond_vectors(self) -> dict[tuple[int, int], np.ndarray]:
+        """Map each bonded pair to the directed vector from atom i to atom j."""
+        directed: dict[tuple[int, int], np.ndarray] = {}
+        for bond_index, (i, j) in enumerate(self.bonds):
+            disp = self._bond_displacement(bond_index)
+            vec_ij = self.atoms[j].position + disp - self.atoms[i].position
+            directed[(i, j)] = vec_ij
+            directed[(j, i)] = -vec_ij
+        return directed
+
     def get_bond_lengths(self) -> list[tuple[int, int, float]]:
         results = []
-        for i, j in self.bonds:
-            dist = float(np.linalg.norm(self.atoms[i].position - self.atoms[j].position))
+        for k, (i, j) in enumerate(self.bonds):
+            disp = self._bond_displacement(k)
+            dist = float(np.linalg.norm(self.atoms[j].position + disp - self.atoms[i].position))
             results.append((i, j, dist))
         return results
 
     def get_angles(self) -> list[tuple[int, int, int, float]]:
         adj = self._adjacency()
+        directed = self._directed_bond_vectors()
         results = []
         for j, neighbors in adj.items():
             for ni, i in enumerate(neighbors):
                 for k in neighbors[ni + 1 :]:
-                    v1 = self.atoms[i].position - self.atoms[j].position
-                    v2 = self.atoms[k].position - self.atoms[j].position
+                    v1 = directed[(j, i)]
+                    v2 = directed[(j, k)]
                     cos_a = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2) + 1e-10)
                     angle = float(np.degrees(np.arccos(np.clip(cos_a, -1.0, 1.0))))
                     results.append((i, j, k, angle))
@@ -192,6 +225,7 @@ class Molecule:
 
     def get_dihedrals(self) -> list[tuple[int, int, int, int, float]]:
         adj = self._adjacency()
+        directed = self._directed_bond_vectors()
         results = []
         seen = set()
         for j, k in self.bonds:
@@ -205,9 +239,9 @@ class Molecule:
                     if key in seen:
                         continue
                     seen.add(key)
-                    b1 = self.atoms[j].position - self.atoms[i].position
-                    b2 = self.atoms[k].position - self.atoms[j].position
-                    b3 = self.atoms[l].position - self.atoms[k].position
+                    b1 = directed[(i, j)]
+                    b2 = directed[(j, k)]
+                    b3 = directed[(k, l)]
                     n1 = np.cross(b1, b2)
                     n2 = np.cross(b2, b3)
                     n1_norm = np.linalg.norm(n1) + 1e-10
@@ -217,10 +251,96 @@ class Molecule:
                     results.append((i, j, k, l, angle))
         return results
 
+    def with_bonded_periodic_images(
+        self, tol: float = 1e-3, bond_tolerance: float = 1.3
+    ) -> "Molecule":
+        """Return a copy that also includes periodic-image atoms bonded across cell faces.
+
+        Extends :meth:`with_periodic_images` (boundary replicas) with images of
+        any atom within bonding distance of an in-cell atom along any of the
+        26 neighboring cell shifts. The image atoms appear as "ghosts" that
+        keep boundary-crossing bonds visible.
+        """
+        if self.lattice is None or not self.atoms:
+            return self
+
+        from itertools import product
+
+        base = self.with_periodic_images(tol=tol)
+
+        existing: dict[tuple[int, int, int], int] = {}
+        new_atoms: list[Atom] = list(base.atoms)
+        for idx, atom in enumerate(new_atoms):
+            key = tuple(np.round(atom.position * 1000).astype(int).tolist())
+            existing[key] = idx  # type: ignore[assignment]
+
+        # Distance check against the full augmented set so boundary replicas
+        # also acquire their cross-cell bonded partners.
+        target_positions = np.array([a.position for a in new_atoms], dtype=np.float64)
+        target_radii = np.array([a.element.covalent_radius for a in new_atoms], dtype=np.float64)
+
+        for s0, s1, s2 in product((-1, 0, 1), repeat=3):
+            if (s0, s1, s2) == (0, 0, 0):
+                continue
+            disp = s0 * self.lattice[0] + s1 * self.lattice[1] + s2 * self.lattice[2]
+            for atom_j in self.atoms:
+                shifted = atom_j.position + disp
+                deltas = target_positions - shifted
+                dist_sq = np.einsum("ij,ij->i", deltas, deltas)
+                max_bond = (target_radii + atom_j.element.covalent_radius) * bond_tolerance
+                if not np.any(dist_sq < max_bond * max_bond):
+                    continue
+                key = tuple(np.round(shifted * 1000).astype(int).tolist())
+                if key in existing:  # type: ignore[comparison-overlap]
+                    continue
+                existing[key] = len(new_atoms)  # type: ignore[assignment]
+                new_atoms.append(Atom(element=atom_j.element, position=shifted))
+
+        replicated = Molecule(atoms=new_atoms, bonds=[], lattice=self.lattice)
+        replicated.detect_bonds(tolerance=bond_tolerance)
+        return replicated
+
+    def with_periodic_images(self, tol: float = 1e-3) -> "Molecule":
+        """Return a copy with atoms on cell boundaries replicated across faces.
+
+        Atoms whose fractional coordinates sit within ``tol`` of 0 or 1 along
+        any axis are duplicated at the equivalent boundary on the opposite
+        side, so the unit cell appears visually complete. Bonds are recomputed
+        on the replicated set. If the molecule has no lattice, returns self.
+        """
+        if self.lattice is None or not self.atoms:
+            return self
+
+        from itertools import product
+
+        positions = np.array([a.position for a in self.atoms], dtype=np.float64)
+        inv = np.linalg.inv(self.lattice)
+        fracs = positions @ inv  # rows: fractional coords
+
+        new_atoms: list[Atom] = []
+        for atom, frac in zip(self.atoms, fracs, strict=False):
+            shifts_per_dim: list[list[int]] = []
+            for d in range(3):
+                f = frac[d] - np.floor(frac[d])
+                shifts = [0]
+                if f < tol:
+                    shifts.append(1)
+                elif 1.0 - f < tol:
+                    shifts.append(-1)
+                shifts_per_dim.append(shifts)
+            for s0, s1, s2 in product(*shifts_per_dim):
+                disp = s0 * self.lattice[0] + s1 * self.lattice[1] + s2 * self.lattice[2]
+                new_atoms.append(Atom(element=atom.element, position=atom.position + disp))
+
+        replicated = Molecule(atoms=new_atoms, bonds=[], lattice=self.lattice)
+        replicated.detect_bonds()
+        return replicated
+
     def detect_bonds(self, tolerance: float = 1.3):
         n = len(self.atoms)
         if n < 2:
             self.bonds = []
+            self.bond_shifts = None
             return
 
         positions = np.array([atom.position for atom in self.atoms], dtype=np.float64)
@@ -239,3 +359,60 @@ class Molecule:
         self.bonds = [
             (int(i), int(j)) for i, j in zip(i_idx[is_bonded], j_idx[is_bonded], strict=False)
         ]
+        self.bond_shifts = None
+
+    def detect_bonds_auto(self, tolerance: float = 1.3):
+        if self.lattice is None:
+            self.detect_bonds(tolerance=tolerance)
+            return
+        self.detect_bonds_periodic(tolerance=tolerance)
+
+    def detect_bonds_periodic(self, tolerance: float = 1.3):
+        """Detect bonds including periodic-image neighbours.
+
+        Records each unique bond once with the integer cell shift applied to
+        the j atom. The (0, 0, 0) shift recovers in-cell bonds; non-zero
+        shifts cover bonds that cross unit-cell faces.
+        """
+        if self.lattice is None:
+            raise ValueError("detect_bonds_periodic requires a lattice")
+
+        from itertools import product
+
+        n = len(self.atoms)
+        if n == 0:
+            self.bonds = []
+            self.bond_shifts = None
+            return
+
+        positions = np.array([atom.position for atom in self.atoms], dtype=np.float64)
+        radii = np.array([atom.element.covalent_radius for atom in self.atoms], dtype=np.float64)
+
+        bonds: list[tuple[int, int]] = []
+        shifts: list[tuple[int, int, int]] = []
+        for s0, s1, s2 in product((-1, 0, 1), repeat=3):
+            disp = s0 * self.lattice[0] + s1 * self.lattice[1] + s2 * self.lattice[2]
+            shifted = positions + disp
+            for i in range(n):
+                # Restrict to unique unordered pairs:
+                #   * For different atoms, take only i < j (any shift).
+                #   * For the same atom, take only the lex-positive half of
+                #     the shift to avoid double-counting (i,i,s) and (i,i,-s);
+                #     drop the trivial zero shift.
+                if (s0, s1, s2) == (0, 0, 0):
+                    j_start = i + 1
+                else:
+                    j_start = i
+                for j in range(j_start, n):
+                    if i == j:
+                        if (s0, s1, s2) <= (0, 0, 0):
+                            continue
+                    delta = shifted[j] - positions[i]
+                    dist_sq = float(delta @ delta)
+                    cutoff = (radii[i] + radii[j]) * tolerance
+                    if dist_sq < cutoff * cutoff:
+                        bonds.append((i, j))
+                        shifts.append((s0, s1, s2))
+
+        self.bonds = bonds
+        self.bond_shifts = shifts

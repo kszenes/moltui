@@ -1,6 +1,6 @@
 # MolTUI
 
-**MolTUI** is a terminal molecular viewer for the **XYZ**, **Zmat**, **Molden**, **Gaussian Cube** and **.fchk**, **Orca .gbw** and **.hess**, and **TrexIO** file format designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
+**MolTUI** is a terminal **molecular** and **crystallographic** viewer for the **(extended) XYZ**, **Z-matrix**, **CIF**, **Molden**, **Gaussian Cube** and **.fchk**, **Orca .gbw** and **.hess**, and **TrexIO** file formats designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
 Ideal for **remote SSH sessions** and **lightweight analyses**.
 
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
@@ -41,6 +41,15 @@ The modes consist of **molecular orbitals**, **normal modes** and **geometry** a
 - **Atom indices** can be toggled via `#`.
 
 <img width="1510" height="923" alt="image" src="https://github.com/user-attachments/assets/8a6dab9a-d377-4d16-bfe1-89c83d0763a1" />
+
+#### Periodic Systems
+
+- **Periodic systems** can be provided using the **extended XYZ** and **CIF** file formats
+- The **toggling** of the **periodicity** is achieved via the `b` key
+- The **rendering of the box** can be toggled in the visual pane
+
+<img width="1508" height="899" alt="image" src="https://github.com/user-attachments/assets/5604ec3a-942c-427e-bef6-fc100be8f96c" />
+
 
 ### Animations
 
@@ -89,7 +98,8 @@ Toggle between **light** and **dark** mode with `i`.
 
 | Format                | Geometry | Orbitals | Normal Modes |
 |-----------------------|:--------:|:--------:|:------------:|
-| **XYZ**               | ✓        | —        | —            |
+| **XYZ** / **extXYZ**  | ✓        | —        | —            |
+| **CIF**               | ✓        | —        | —            |
 | Gaussian **ZMAT**     | ✓        | —        | —            |
 | Gaussian **Cube**     | ✓        | ✓        | —            |
 | **Molden**            | ✓        | ✓        | ✓            |
@@ -123,7 +133,8 @@ Toggle between **light** and **dark** mode with `i`.
 |-----|--------|
 | `o` | Toggle **orbital isosurfaces** |
 | `i` | Toggle **dark/light** theme |
-| `b` | Toggle **bonds** |
+| `B` | Toggle **bonds** |
+| `b` | Toggle **periodicity** |
 | `e` | **Export** PNG |
 | `v` | Toggle **style** (CPK, Licorice, VDW) |
 | `#` | Toggle **atom numbers** |

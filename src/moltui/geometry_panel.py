@@ -9,6 +9,12 @@ from textual.widgets import DataTable, TabbedContent, TabPane
 from .elements import Molecule
 
 
+def _parse_row_key(value: str) -> tuple[int, ...]:
+    """Parse a geometry-panel row key into atom indices."""
+    atom_part = value.split("#", 1)[0]
+    return tuple(int(x) for x in atom_part.split("-"))
+
+
 class GeometryPanel(Widget):
     BINDINGS = [
         Binding("tab", "next_tab", "Tab", show=True),
@@ -38,6 +44,7 @@ class GeometryPanel(Widget):
     def __init__(self) -> None:
         super().__init__()
         self._molecule: Molecule | None = None
+        self._parent_indices: list[int] | None = None
         self._populating = False
         self._sort_ascending: dict[str, bool] = {
             "tab-bonds": False,
@@ -45,10 +52,18 @@ class GeometryPanel(Widget):
             "tab-dihedrals": False,
         }
 
-    def set_molecule(self, molecule: Molecule) -> None:
+    def set_molecule(self, molecule: Molecule, parent_indices: list[int] | None = None) -> None:
+        selected_row_keys: dict[str, str | None] | None = None
+        if self.is_mounted and self._molecule is not None:
+            tab_ids = ("tab-bonds", "tab-angles", "tab-dihedrals")
+            selected_row_keys = {
+                tab_id: self._current_row_key_value(self._table_for_tab(tab_id))
+                for tab_id in tab_ids
+            }
         self._molecule = molecule
+        self._parent_indices = parent_indices
         if self.is_mounted:
-            self._populate_tables()
+            self._populate_tables(selected_row_keys)
 
     def refresh_measurements(self) -> None:
         """Recompute displayed geometry values while preserving table selection."""
@@ -105,7 +120,12 @@ class GeometryPanel(Widget):
     def _atom_label(self, idx: int) -> str:
         if self._molecule is None:
             return str(idx + 1)
-        return f"{idx + 1}:{self._molecule.atoms[idx].element.symbol}"
+        width = len(str(len(self._molecule.atoms)))
+        if self._parent_indices is not None and 0 <= idx < len(self._parent_indices):
+            label_idx = self._parent_indices[idx]
+        else:
+            label_idx = idx
+        return f"{label_idx + 1:>{width}}:{self._molecule.atoms[idx].element.symbol}"
 
     def _table_for_tab(self, tab_id: str) -> DataTable:
         table_id = {
@@ -141,17 +161,17 @@ class GeometryPanel(Widget):
 
         # Bonds
         bonds = self._molecule.get_bond_lengths()
-        if self._sort_ascending["tab-bonds"]:
-            bonds.sort(key=lambda x: x[2])
         table = self.query_one("#bonds-table", DataTable)
         table.clear(columns=True)
         table.add_columns("Atom 1", "Atom 2", "Length (\u00c5)")
-        for i, j, dist in bonds:
+        if self._sort_ascending["tab-bonds"]:
+            bonds.sort(key=lambda x: x[2])
+        for row_idx, (i, j, dist) in enumerate(bonds):
             table.add_row(
                 self._atom_label(i),
                 self._atom_label(j),
                 f"{dist:.4f}",
-                key=f"{i}-{j}",
+                key=f"{i}-{j}#{row_idx}",
             )
         self._restore_cursor(table, selected_row_keys.get("tab-bonds"))
 
@@ -162,13 +182,13 @@ class GeometryPanel(Widget):
         table = self.query_one("#angles-table", DataTable)
         table.clear(columns=True)
         table.add_columns("Atom 1", "Vertex", "Atom 3", "Angle (\u00b0)")
-        for i, j, k, angle in angles:
+        for row_idx, (i, j, k, angle) in enumerate(angles):
             table.add_row(
                 self._atom_label(i),
                 self._atom_label(j),
                 self._atom_label(k),
                 f"{angle:.3f}",
-                key=f"{i}-{j}-{k}",
+                key=f"{i}-{j}-{k}#{row_idx}",
             )
         self._restore_cursor(table, selected_row_keys.get("tab-angles"))
 
@@ -179,14 +199,14 @@ class GeometryPanel(Widget):
         table = self.query_one("#dihedrals-table", DataTable)
         table.clear(columns=True)
         table.add_columns("Atom 1", "Atom 2", "Atom 3", "Atom 4", "Angle (\u00b0)")
-        for i, j, k, l, angle in dihedrals:
+        for row_idx, (i, j, k, l, angle) in enumerate(dihedrals):
             table.add_row(
                 self._atom_label(i),
                 self._atom_label(j),
                 self._atom_label(k),
                 self._atom_label(l),
                 f"{angle:.3f}",
-                key=f"{i}-{j}-{k}-{l}",
+                key=f"{i}-{j}-{k}-{l}#{row_idx}",
             )
         self._restore_cursor(table, selected_row_keys.get("tab-dihedrals"))
 
@@ -201,8 +221,7 @@ class GeometryPanel(Widget):
             return
         rk = list(dt.rows.keys())[dt.cursor_row]
         if rk.value is not None:
-            indices = tuple(int(x) for x in rk.value.split("-"))
-            self.post_message(self.HighlightAtoms(indices))
+            self.post_message(self.HighlightAtoms(_parse_row_key(rk.value)))
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         """Focus the DataTable in the newly active tab and highlight its row."""
@@ -223,5 +242,4 @@ class GeometryPanel(Widget):
             return
         if event.row_key is None or event.row_key.value is None:
             return
-        indices = tuple(int(x) for x in event.row_key.value.split("-"))
-        self.post_message(self.HighlightAtoms(indices))
+        self.post_message(self.HighlightAtoms(_parse_row_key(event.row_key.value)))

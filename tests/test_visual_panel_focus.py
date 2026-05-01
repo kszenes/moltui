@@ -56,6 +56,38 @@ async def test_opening_visual_panel_focuses_atom_scale_when_no_contextual_slider
 
 
 @pytest.mark.asyncio
+async def test_opening_visual_panel_focuses_show_box_for_periodic_molecule() -> None:
+    _install_skimage_stub()
+
+    from moltui.app import MoltuiApp
+    from moltui.elements import Atom, Molecule, get_element
+    from moltui.visual_panel import Toggle, VisualPanel
+
+    H = get_element("H")
+    molecule = Molecule(
+        atoms=[
+            Atom(H, np.array([0.0, 0.0, 0.0])),
+            Atom(H, np.array([1.9, 0.0, 0.0])),
+        ],
+        bonds=[],
+        lattice=np.diag([2.0, 2.0, 2.0]),
+    )
+    molecule.detect_bonds_periodic()
+    app = MoltuiApp(molecule=molecule, filepath="sample.extxyz")
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        visual_panel = app.query_one(VisualPanel)
+
+        await pilot.press("V")
+        await pilot.pause()
+
+        show_box = visual_panel.query_one("#checkbox-show-cell", Toggle)
+        assert visual_panel.has_class("visible")
+        assert show_box.has_focus
+
+
+@pytest.mark.asyncio
 async def test_opening_visual_panel_focuses_isovalue_when_visible() -> None:
     _install_skimage_stub()
 

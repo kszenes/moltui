@@ -43,8 +43,9 @@ async def test_panel_next_prev_actions_select_normal_mode() -> None:
     molecule = Molecule(atoms=atoms, bonds=[])
     molecule.detect_bonds()
 
-    # 3 atoms, non-linear -> first vibrational mode index starts at 6.
-    n_modes = 9
+    # NormalModeData passed to the app is expected to be already pre-filtered
+    # of rigid-body modes (filtering happens at file-load).
+    n_modes = 3
     mode_vectors = np.zeros((n_modes, len(atoms), 3), dtype=np.float64)
     for i in range(n_modes):
         mode_vectors[i, :, 0] = 0.01 * (i + 1)
@@ -52,7 +53,7 @@ async def test_panel_next_prev_actions_select_normal_mode() -> None:
     normal_mode_data = NormalModeData(
         equilibrium_coords=np.array([a.position.copy() for a in atoms]),
         mode_vectors=mode_vectors,
-        frequencies=np.arange(float(n_modes)),
+        frequencies=np.array([2041.3, 4493.7, 4796.3]),
     )
 
     app = MoltuiApp(
@@ -66,16 +67,16 @@ async def test_panel_next_prev_actions_select_normal_mode() -> None:
         await pilot.pause()
         assert app.query_one(NormalModePanel).has_class("visible")
         assert app.normal_mode_data is not None
-        assert app.normal_mode_data.mode_index == 6
+        assert app.normal_mode_data.mode_index == 0
         assert app._is_playing
 
         app.action_panel_next()
         await pilot.pause()
-        assert app.normal_mode_data.mode_index == 7
+        assert app.normal_mode_data.mode_index == 1
 
         app.action_panel_prev()
         await pilot.pause()
-        assert app.normal_mode_data.mode_index == 6
+        assert app.normal_mode_data.mode_index == 0
 
 
 @pytest.mark.asyncio
@@ -430,7 +431,7 @@ async def test_brackets_and_space_control_multixyz_frames_in_geometry_mode() -> 
 
         panel = app.query_one(GeometryPanel)
         bond_table = panel.query_one("#bonds-table", DataTable)
-        initial_length = bond_table.get_cell_at(Coordinate(0, 2))
+        initial_length = bond_table.get_cell_at(Coordinate(0, 2)).strip()
 
         assert app.check_action("next_animation_step", tuple()) is True
         assert app.check_action("prev_animation_step", tuple()) is True
@@ -440,7 +441,7 @@ async def test_brackets_and_space_control_multixyz_frames_in_geometry_mode() -> 
         await pilot.pause()
         assert app.trajectory_data is not None
         assert app.trajectory_data.frame_index == 1
-        updated_length = bond_table.get_cell_at(Coordinate(0, 2))
+        updated_length = bond_table.get_cell_at(Coordinate(0, 2)).strip()
         assert updated_length != initial_length
         assert updated_length == "0.8000"
 

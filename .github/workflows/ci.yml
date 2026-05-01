@@ -54,6 +54,28 @@ jobs:
       - name: Run PySCF comparison tests
         run: uv run pytest tests/test_gto.py
 
+  tests-ase:
+    name: Tests with ASE (Python 3.11)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install project and test dependencies (with ASE)
+        run: uv sync --extra test-ase
+
+      - name: Run ASE comparison tests
+        run: uv run pytest tests/test_cif_vs_ase.py
+
   tests-trexio:
     name: Tests with TREXIO (Python 3.11)
     runs-on: ubuntu-latest

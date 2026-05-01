@@ -24,6 +24,50 @@ class _NavRadioSet(RadioSet):
         self.action_toggle_button()
 
 
+class Toggle(Static, can_focus=True):
+    """Minimal single-line checkbox in the visual-panel style."""
+
+    BINDINGS = [
+        Binding("tab", "flip", "Toggle", show=False),
+        Binding("shift+tab", "flip", "Toggle", show=False),
+        Binding("space", "flip", "Toggle", show=False),
+        Binding("enter", "flip", "Toggle", show=False),
+    ]
+
+    DEFAULT_CSS = """
+    Toggle {
+        height: 1;
+        width: 1fr;
+        padding: 0 1;
+    }
+    Toggle:focus {
+        background: $accent 30%;
+        text-style: bold;
+    }
+    """
+
+    def __init__(self, label: str, value: bool = False, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.label = label
+        self.value = value
+
+    class Changed(Message):
+        def __init__(self, toggle: "Toggle", value: bool) -> None:
+            super().__init__()
+            self.toggle = toggle
+            self.value = value
+
+    def render(self) -> str:
+        prefix = "▸ " if self.has_focus else "  "
+        mark = "✓" if self.value else " "
+        return f"{prefix}{self.label}: [{mark}]"
+
+    def action_flip(self) -> None:
+        self.value = not self.value
+        self.refresh()
+        self.post_message(self.Changed(self, self.value))
+
+
 class Slider(Static, can_focus=True):
     """Minimal horizontal slider. Tab/Shift+Tab adjust value."""
 
@@ -160,6 +204,11 @@ class VisualPanel(Widget):
             super().__init__()
             self.trajectory_fps = trajectory_fps
 
+    class CellChanged(Message):
+        def __init__(self, show_cell: bool) -> None:
+            super().__init__()
+            self.show_cell = show_cell
+
     def __init__(self) -> None:
         super().__init__()
         self._licorice = False
@@ -167,6 +216,7 @@ class VisualPanel(Widget):
         self._has_isosurfaces = False
         self._has_trajectory = False
         self._has_normal_modes = False
+        self._has_lattice = False
 
     def set_state(
         self,
@@ -185,12 +235,15 @@ class VisualPanel(Widget):
         has_normal_modes: bool = False,
         vibrational_phase_step: float = 0.30,
         trajectory_fps: float = 12.0,
+        has_lattice: bool = False,
+        show_cell: bool = True,
     ) -> None:
         self._licorice = licorice
         self._vdw = vdw
         self._has_isosurfaces = has_isosurfaces
         self._has_trajectory = has_trajectory
         self._has_normal_modes = has_normal_modes
+        self._has_lattice = has_lattice
         if self.is_mounted:
             self._sync_widgets(
                 ambient=ambient,
@@ -202,6 +255,7 @@ class VisualPanel(Widget):
                 isovalue=isovalue,
                 vibrational_phase_step=vibrational_phase_step,
                 trajectory_fps=trajectory_fps,
+                show_cell=show_cell,
             )
 
     def _sync_widgets(
@@ -216,6 +270,7 @@ class VisualPanel(Widget):
         isovalue: float = 0.05,
         vibrational_phase_step: float = 0.30,
         trajectory_fps: float = 12.0,
+        show_cell: bool = True,
     ) -> None:
         radio_set = self.query_one(_NavRadioSet)
         if self._licorice:
@@ -234,10 +289,13 @@ class VisualPanel(Widget):
         self.query_one("#slider-isovalue", Slider).value = isovalue
         self.query_one("#slider-vibrational-speed", Slider).value = vibrational_phase_step
         self.query_one("#slider-trajectory-speed", Slider).value = trajectory_fps
+        self.query_one("#checkbox-show-cell", Toggle).value = show_cell
         self._update_visibility()
         self.refresh()
 
     def compose(self) -> ComposeResult:
+        yield Label("Periodic", id="label-periodic")
+        yield Toggle("Show Box", value=True, id="checkbox-show-cell")
         yield Label("Animation", id="label-animation")
         yield Slider(
             "Vibrational Speed",
@@ -323,9 +381,9 @@ class VisualPanel(Widget):
         )
 
     def _update_visibility(self) -> None:
-        self.query_one("#slider-atom-scale", Slider).display = not self._licorice and not self._vdw
+        self.query_one("#slider-atom-scale", Slider).display = not self._licorice
         self.query_one("#slider-bond-radius", Slider).display = not self._vdw
-        self.query_one("#label-sizes", Label).display = not self._vdw
+        self.query_one("#label-sizes", Label).display = True
         self.query_one("#label-isovalue", Label).display = self._has_isosurfaces
         self.query_one("#slider-isovalue", Slider).display = self._has_isosurfaces
         self.query_one("#slider-vibrational-speed", Slider).display = self._has_normal_modes
@@ -333,12 +391,18 @@ class VisualPanel(Widget):
         self.query_one("#label-animation", Label).display = (
             self._has_normal_modes or self._has_trajectory
         )
+        self.query_one("#label-periodic", Label).display = self._has_lattice
+        self.query_one("#checkbox-show-cell", Toggle).display = self._has_lattice
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         self._licorice = event.pressed.id == "radio-licorice"
         self._vdw = event.pressed.id == "radio-vdw"
         self._update_visibility()
         self.post_message(self.StyleChanged(self._licorice, self._vdw))
+
+    def on_toggle_changed(self, event: Toggle.Changed) -> None:
+        if event.toggle.id == "checkbox-show-cell":
+            self.post_message(self.CellChanged(bool(event.value)))
 
     def on_slider_changed(self, event: Slider.Changed) -> None:
         sid = event.slider.id or ""

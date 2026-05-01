@@ -306,6 +306,33 @@ class TestDetectBonds:
         assert mol.bonds == []
         assert mol.bond_shifts is None
 
+    def test_detect_bonds_auto_uses_nonperiodic_without_lattice(self):
+        H = get_element("H")
+        mol = Molecule(
+            atoms=[
+                Atom(H, np.array([0.0, 0.0, 0.0])),
+                Atom(H, np.array([0.74, 0.0, 0.0])),
+            ],
+            bonds=[],
+        )
+        mol.detect_bonds_auto()
+        assert mol.bonds == [(0, 1)]
+        assert mol.bond_shifts is None
+
+    def test_detect_bonds_auto_uses_periodic_with_lattice(self):
+        H = get_element("H")
+        mol = Molecule(
+            atoms=[
+                Atom(H, np.array([0.0, 0.0, 0.0])),
+                Atom(H, np.array([1.9, 0.0, 0.0])),
+            ],
+            bonds=[],
+            lattice=np.diag([2.0, 2.0, 2.0]),
+        )
+        mol.detect_bonds_auto()
+        assert mol.bonds == [(0, 1)]
+        assert mol.bond_shifts == [(-1, 0, 0)]
+
     def test_detect_bonds_periodic_nacl_like_has_six_cation_neighbors(self):
         C = get_element("C")
         H = get_element("H")

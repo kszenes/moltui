@@ -350,6 +350,12 @@ class Molecule:
         ]
         self.bond_shifts = None
 
+    def detect_bonds_auto(self, tolerance: float = 1.3):
+        if self.lattice is None:
+            self.detect_bonds(tolerance=tolerance)
+            return
+        self.detect_bonds_periodic(tolerance=tolerance)
+
     def detect_bonds_periodic(self, tolerance: float = 1.3):
         """Detect bonds including periodic-image neighbours.
 

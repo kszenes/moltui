@@ -734,10 +734,7 @@ class MoltuiApp(App):
         for i, atom in enumerate(self.molecule.atoms):
             atom.position = coords[i].copy()
         if recompute_bonds:
-            if self.molecule.lattice is not None:
-                self.molecule.detect_bonds_periodic()
-            else:
-                self.molecule.detect_bonds()
+            self.molecule.detect_bonds_auto()
         view = self._query_molecule_view()
         if view is None:
             # Timer callbacks can race with app teardown in tests/CI.

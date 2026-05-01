@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from moltui.parsers import (
+    _parse_xyz_comment_metadata,
     load_molecule,
     parse_cif,
     parse_cube_data,
@@ -182,6 +183,15 @@ class TestParseXYZTrajectory:
 
 
 class TestExtXYZ:
+    def test_comment_metadata_handles_quoted_and_bare_values(self):
+        metadata = _parse_xyz_comment_metadata(
+            'comment Lattice="4.0 0.0 0.0 0.0 5.0 0.0 0.0 0.0 6.0" energy=-15.5 note'
+        )
+        assert metadata == {
+            "Lattice": "4.0 0.0 0.0 0.0 5.0 0.0 0.0 0.0 6.0",
+            "energy": "-15.5",
+        }
+
     def test_lattice_attached(self, tmp_path: Path):
         body = (
             "3\n"

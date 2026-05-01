@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -207,42 +208,8 @@ def _parse_xyz_comment_metadata(line: str) -> dict[str, str]:
     bare values (e.g. `energy=-15.5`). Returns an empty dict for plain XYZ
     comments with no `=`.
     """
-    result: dict[str, str] = {}
-    s = line.rstrip("\n").rstrip("\r")
-    n = len(s)
-    i = 0
-    while i < n:
-        while i < n and s[i].isspace():
-            i += 1
-        if i >= n:
-            break
-        # Read key up to '='
-        key_start = i
-        while i < n and s[i] != "=" and not s[i].isspace():
-            i += 1
-        if i >= n or s[i] != "=":
-            # Token without '=' — skip; not a metadata pair.
-            while i < n and not s[i].isspace():
-                i += 1
-            continue
-        key = s[key_start:i]
-        i += 1  # consume '='
-        if i < n and s[i] == '"':
-            i += 1
-            val_start = i
-            while i < n and s[i] != '"':
-                i += 1
-            value = s[val_start:i]
-            if i < n:
-                i += 1  # consume closing '"'
-        else:
-            val_start = i
-            while i < n and not s[i].isspace():
-                i += 1
-            value = s[val_start:i]
-        if key:
-            result[key] = value
-    return result
+    matches = re.findall(r'(\w+)=(?:"([^"]*)"|(\S+))', line.rstrip("\n\r"))
+    return {key: quoted or bare for key, quoted, bare in matches}
 
 
 def _parse_lattice(value: str) -> np.ndarray:
@@ -368,10 +335,7 @@ def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
         for i, symbol in enumerate(symbols_ref)
     ]
     mol = Molecule(atoms=atoms, bonds=[], lattice=lattice)
-    if lattice is not None:
-        mol.detect_bonds_periodic()
-    else:
-        mol.detect_bonds()
+    mol.detect_bonds_auto()
     return XYZTrajectory(molecule=mol, frames=np.stack(frames, axis=0), lattice=lattice)
 
 
@@ -545,23 +509,16 @@ def _element_from_cif_label(label: str) -> str:
     return label[0]
 
 
-def parse_cif(filepath: str | Path) -> Molecule:
-    """Parse a minimal CIF file into a Molecule.
-
-    Supports cell parameters (_cell_length_a/b/c, _cell_angle_alpha/beta/gamma)
-    and a single atom_site loop with fractional or Cartesian coordinates.
-    """
-    filepath = Path(filepath)
-    with open(filepath) as f:
-        raw_lines = f.readlines()
-
+def _clean_cif_lines(raw_lines: list[str]) -> list[str]:
     lines: list[str] = []
     for line in raw_lines:
         stripped = line.split("#", 1)[0].rstrip()
-        if not stripped.strip():
-            continue
-        lines.append(stripped)
+        if stripped.strip():
+            lines.append(stripped)
+    return lines
 
+
+def _parse_cif_cell(lines: list[str]) -> dict[str, float]:
     cell: dict[str, float] = {}
     cell_keys = {
         "_cell_length_a": "a",
@@ -571,6 +528,163 @@ def parse_cif(filepath: str | Path) -> Molecule:
         "_cell_angle_beta": "beta",
         "_cell_angle_gamma": "gamma",
     }
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        lower = stripped.lower()
+        matched_key = next((key for key in cell_keys if lower.startswith(key)), None)
+        if matched_key is None:
+            i += 1
+            continue
+        tokens = _split_cif_tokens(stripped)
+        if len(tokens) >= 2:
+            cell[cell_keys[matched_key]] = _cif_float(tokens[1])
+        else:
+            i += 1
+            cell[cell_keys[matched_key]] = _cif_float(lines[i].strip())
+        i += 1
+    return cell
+
+
+def _skip_cif_loop_rows(lines: list[str], start_idx: int) -> int:
+    i = start_idx
+    while i < len(lines):
+        s = lines[i].strip()
+        if not s or s.lower() == "loop_" or s.startswith("_") or s.startswith("data_"):
+            break
+        i += 1
+    return i
+
+
+def _parse_cif_symmetry(
+    headers: list[str], lines: list[str], start_idx: int
+) -> tuple[list[tuple[np.ndarray, np.ndarray]], int]:
+    symop_header_names = (
+        "_symmetry_equiv_pos_as_xyz",
+        "_space_group_symop_operation_xyz",
+    )
+    symop_col = next((idx for idx, h in enumerate(headers) if h in symop_header_names), None)
+    if symop_col is None:
+        return [], start_idx
+
+    symops: list[tuple[np.ndarray, np.ndarray]] = []
+    i = start_idx
+    while i < len(lines):
+        s = lines[i].strip()
+        if not s or s.lower() == "loop_" or s.startswith("_") or s.startswith("data_"):
+            break
+        tokens = _split_cif_tokens(s)
+        if len(tokens) == len(headers):
+            op_str = tokens[symop_col]
+        elif len(tokens) >= symop_col + 1:
+            op_str = tokens[symop_col]
+        else:
+            i += 1
+            continue
+        rot, trans = _parse_symop(op_str)
+        symops.append((rot, trans))
+        i += 1
+    return symops, i
+
+
+def _parse_cif_atoms(
+    headers: list[str], lines: list[str], start_idx: int, cell: dict[str, float]
+) -> tuple[list[Atom], list[str], list[np.ndarray], int]:
+    atom_site_headers = [h for h in headers if h.startswith("_atom_site_")]
+    if not atom_site_headers or len(atom_site_headers) != len(headers):
+        return [], [], [], start_idx
+
+    col_index = {h: idx for idx, h in enumerate(headers)}
+    label_idx = col_index.get("_atom_site_label")
+    symbol_idx = col_index.get("_atom_site_type_symbol")
+    fx_idx = col_index.get("_atom_site_fract_x")
+    fy_idx = col_index.get("_atom_site_fract_y")
+    fz_idx = col_index.get("_atom_site_fract_z")
+    cx_idx = col_index.get("_atom_site_cartn_x")
+    cy_idx = col_index.get("_atom_site_cartn_y")
+    cz_idx = col_index.get("_atom_site_cartn_z")
+
+    coord_idx: tuple[int, int, int] | None = None
+    use_fractional = False
+    if fx_idx is not None and fy_idx is not None and fz_idx is not None:
+        coord_idx = (fx_idx, fy_idx, fz_idx)
+        use_fractional = True
+    elif cx_idx is not None and cy_idx is not None and cz_idx is not None:
+        coord_idx = (cx_idx, cy_idx, cz_idx)
+    else:
+        return [], [], [], _skip_cif_loop_rows(lines, start_idx)
+
+    lattice = np.eye(3)
+    if use_fractional:
+        missing = [k for k in ("a", "b", "c", "alpha", "beta", "gamma") if k not in cell]
+        if missing:
+            raise ValueError(
+                f"CIF file uses fractional coordinates but is missing cell parameters: {missing}"
+            )
+        lattice = _cif_fractional_to_cartesian_matrix(
+            cell["a"],
+            cell["b"],
+            cell["c"],
+            cell["alpha"],
+            cell["beta"],
+            cell["gamma"],
+        )
+
+    atoms: list[Atom] = []
+    frac_symbols: list[str] = []
+    frac_coords: list[np.ndarray] = []
+    i = start_idx
+    while i < len(lines):
+        s = lines[i].strip()
+        if not s or s.lower() == "loop_" or s.startswith("data_") or s.startswith("_"):
+            break
+        tokens = _split_cif_tokens(s)
+        if len(tokens) != len(headers):
+            raise ValueError(f"CIF atom_site row has {len(tokens)} tokens, expected {len(headers)}")
+
+        if symbol_idx is not None:
+            symbol = _strip_cif_value(tokens[symbol_idx])
+        elif label_idx is not None:
+            symbol = _element_from_cif_label(_strip_cif_value(tokens[label_idx]))
+        else:
+            raise ValueError("CIF atom_site loop missing label and type_symbol")
+
+        symbol_clean = ""
+        for ch in symbol:
+            if ch.isalpha():
+                symbol_clean += ch
+            else:
+                break
+        if not symbol_clean:
+            raise ValueError(f"Could not derive element from CIF symbol {symbol!r}")
+
+        assert coord_idx is not None
+        ix, iy, iz = coord_idx
+        coords = np.array(
+            [_cif_float(tokens[ix]), _cif_float(tokens[iy]), _cif_float(tokens[iz])],
+            dtype=np.float64,
+        )
+        pos = coords @ lattice if use_fractional else coords
+        atoms.append(Atom(element=get_element(symbol_clean), position=pos))
+        if use_fractional:
+            frac_symbols.append(symbol_clean)
+            frac_coords.append(coords)
+        i += 1
+
+    return atoms, frac_symbols, frac_coords, i
+
+
+def parse_cif(filepath: str | Path) -> Molecule:
+    """Parse a minimal CIF file into a Molecule.
+
+    Supports cell parameters (_cell_length_a/b/c, _cell_angle_alpha/beta/gamma)
+    and a single atom_site loop with fractional or Cartesian coordinates.
+    """
+    filepath = Path(filepath)
+    with open(filepath) as f:
+        lines = _clean_cif_lines(f.readlines())
+
+    cell = _parse_cif_cell(lines)
 
     atoms: list[Atom] = []
     frac_atoms_symbols: list[str] = []
@@ -579,153 +693,28 @@ def parse_cif(filepath: str | Path) -> Molecule:
 
     i = 0
     while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-        lower = stripped.lower()
-
-        matched_cell = False
-        for key, name in cell_keys.items():
-            if lower.startswith(key):
-                tokens = _split_cif_tokens(stripped)
-                if len(tokens) >= 2:
-                    cell[name] = _cif_float(tokens[1])
-                else:
-                    i += 1
-                    cell[name] = _cif_float(lines[i].strip())
-                matched_cell = True
-                break
-        if matched_cell:
-            i += 1
-            continue
-
-        if lower == "loop_":
+        if lines[i].strip().lower() == "loop_":
             i += 1
             headers: list[str] = []
             while i < len(lines) and lines[i].strip().startswith("_"):
                 headers.append(lines[i].strip().lower())
                 i += 1
 
-            atom_site_headers = [h for h in headers if h.startswith("_atom_site_")]
-            symop_header_names = (
-                "_symmetry_equiv_pos_as_xyz",
-                "_space_group_symop_operation_xyz",
-            )
-            symop_col = next(
-                (idx for idx, h in enumerate(headers) if h in symop_header_names), None
-            )
-            if symop_col is not None:
-                while i < len(lines):
-                    s = lines[i].strip()
-                    if not s or s.lower() == "loop_" or s.startswith("_") or s.startswith("data_"):
-                        break
-                    tokens = _split_cif_tokens(s)
-                    if len(tokens) != len(headers):
-                        # Some CIFs put the symop on its own line as a single
-                        # quoted/unquoted token, with the rest of the row on
-                        # the previous line — fall back to using the first
-                        # token if shapes don't match.
-                        if len(tokens) >= symop_col + 1:
-                            op_str = tokens[symop_col]
-                        else:
-                            i += 1
-                            continue
-                    else:
-                        op_str = tokens[symop_col]
-                    rot, trans = _parse_symop(op_str)
-                    symops.append((rot, trans))
-                    i += 1
-                continue
-            if not atom_site_headers or len(atom_site_headers) != len(headers):
-                while i < len(lines):
-                    s = lines[i].strip()
-                    if not s or s.lower() == "loop_" or s.startswith("_") or s.startswith("data_"):
-                        break
-                    i += 1
+            loop_symops, next_i = _parse_cif_symmetry(headers, lines, i)
+            if loop_symops:
+                symops.extend(loop_symops)
+                i = next_i
                 continue
 
-            col_index = {h: idx for idx, h in enumerate(headers)}
-            label_idx = col_index.get("_atom_site_label")
-            symbol_idx = col_index.get("_atom_site_type_symbol")
-            fx_idx = col_index.get("_atom_site_fract_x")
-            fy_idx = col_index.get("_atom_site_fract_y")
-            fz_idx = col_index.get("_atom_site_fract_z")
-            cx_idx = col_index.get("_atom_site_cartn_x")
-            cy_idx = col_index.get("_atom_site_cartn_y")
-            cz_idx = col_index.get("_atom_site_cartn_z")
-
-            coord_idx: tuple[int, int, int] | None = None
-            use_fractional = False
-            if fx_idx is not None and fy_idx is not None and fz_idx is not None:
-                coord_idx = (fx_idx, fy_idx, fz_idx)
-                use_fractional = True
-            elif cx_idx is not None and cy_idx is not None and cz_idx is not None:
-                coord_idx = (cx_idx, cy_idx, cz_idx)
-            else:
-                # Auxiliary atom_site loops (e.g. _atom_site_aniso_* for
-                # displacement parameters) carry no coordinates — skip rather
-                # than treat as a fatal error.
-                while i < len(lines):
-                    s = lines[i].strip()
-                    if not s or s.lower() == "loop_" or s.startswith("_") or s.startswith("data_"):
-                        break
-                    i += 1
+            loop_atoms, loop_symbols, loop_fracs, next_i = _parse_cif_atoms(headers, lines, i, cell)
+            if loop_atoms:
+                atoms.extend(loop_atoms)
+                frac_atoms_symbols.extend(loop_symbols)
+                frac_atoms_coords.extend(loop_fracs)
+                i = next_i
                 continue
 
-            lattice = np.eye(3)
-            if use_fractional:
-                missing = [k for k in ("a", "b", "c", "alpha", "beta", "gamma") if k not in cell]
-                if missing:
-                    raise ValueError(
-                        "CIF file uses fractional coordinates but is missing "
-                        f"cell parameters: {missing}"
-                    )
-                lattice = _cif_fractional_to_cartesian_matrix(
-                    cell["a"],
-                    cell["b"],
-                    cell["c"],
-                    cell["alpha"],
-                    cell["beta"],
-                    cell["gamma"],
-                )
-
-            while i < len(lines):
-                s = lines[i].strip()
-                if not s or s.lower() == "loop_" or s.startswith("data_") or s.startswith("_"):
-                    break
-                tokens = _split_cif_tokens(s)
-                if len(tokens) != len(headers):
-                    raise ValueError(
-                        f"CIF atom_site row has {len(tokens)} tokens, expected {len(headers)}"
-                    )
-
-                if symbol_idx is not None:
-                    symbol = _strip_cif_value(tokens[symbol_idx])
-                elif label_idx is not None:
-                    symbol = _element_from_cif_label(_strip_cif_value(tokens[label_idx]))
-                else:
-                    raise ValueError("CIF atom_site loop missing label and type_symbol")
-
-                symbol_clean = ""
-                for ch in symbol:
-                    if ch.isalpha():
-                        symbol_clean += ch
-                    else:
-                        break
-                if not symbol_clean:
-                    raise ValueError(f"Could not derive element from CIF symbol {symbol!r}")
-
-                assert coord_idx is not None
-                ix, iy, iz = coord_idx
-                coords = np.array(
-                    [_cif_float(tokens[ix]), _cif_float(tokens[iy]), _cif_float(tokens[iz])],
-                    dtype=np.float64,
-                )
-                pos = coords @ lattice if use_fractional else coords
-                atoms.append(Atom(element=get_element(symbol_clean), position=pos))
-                if use_fractional:
-                    frac_atoms_symbols.append(symbol_clean)
-                    frac_atoms_coords.append(coords)
-                i += 1
+            i = _skip_cif_loop_rows(lines, i)
             continue
 
         i += 1
@@ -760,10 +749,7 @@ def parse_cif(filepath: str | Path) -> Molecule:
             ]
 
     mol = Molecule(atoms=atoms, bonds=[], lattice=mol_lattice)
-    if mol_lattice is not None:
-        mol.detect_bonds_periodic()
-    else:
-        mol.detect_bonds()
+    mol.detect_bonds_auto()
     return mol
 
 

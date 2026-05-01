@@ -1456,6 +1456,12 @@ class MoltuiApp(App):
 
 def _detect_filetype(filepath: str) -> str:
     """Detect file type from content, falling back to extension."""
+    from .qc_inputs import (
+        QC_INPUT_AMBIGUOUS_SUFFIXES,
+        detect_qc_input_by_extension,
+        sniff_qc_input,
+    )
+
     path = Path(filepath)
     suffix = path.suffix.lower()
     name_lower = path.name.lower()
@@ -1477,6 +1483,9 @@ def _detect_filetype(filepath: str) -> str:
         return "trexio"
     if suffix == ".trexio" and (path.is_file() or path.is_dir()):
         return "trexio"
+    qc_by_ext = detect_qc_input_by_extension(path)
+    if qc_by_ext is not None:
+        return qc_by_ext
     if path.is_dir():
         from .trexio_support import is_readable_trexio_text_directory
 
@@ -1485,6 +1494,8 @@ def _detect_filetype(filepath: str) -> str:
         raise ValueError(
             f"{path.resolve()!s} is a directory and is not a readable TREXIO text archive. "
         )
+
+    sniffed_qc: str | None = None
     try:
         with open(filepath) as f:
             for line in f:
@@ -1501,14 +1512,21 @@ def _detect_filetype(filepath: str) -> str:
                 except ValueError:
                     pass
                 break
+        if suffix in QC_INPUT_AMBIGUOUS_SUFFIXES or suffix == "":
+            sniffed_qc = sniff_qc_input(path)
     except (OSError, UnicodeDecodeError) as exc:
         raise ValueError(f"Could not read {filepath!s}: {exc}") from exc
+
+    if sniffed_qc is not None:
+        return sniffed_qc
     if suffix in (".cube", ".cub"):
         return "cube"
     raise ValueError(
         f"Unsupported file format: {filepath!s}. "
         "Supported formats: .xyz, .extxyz, .cif, .cube, .molden, .fchk, .hess, "
-        ".zmat, .gbw, .h5/.hdf5/.trexio (TREXIO)."
+        ".zmat, .gbw, .h5/.hdf5/.trexio (TREXIO), and QC inputs from "
+        "Orca, Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro, MRCC, "
+        "CFOUR, Psi4, GAMESS, and Jaguar."
     )
 
 

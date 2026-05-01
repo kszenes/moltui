@@ -34,7 +34,7 @@ from .parsers import (
     parse_orca_hess_data,
     parse_xyz_trajectory,
 )
-from .visual_panel import Slider, VisualPanel
+from .visual_panel import Slider, Toggle, VisualPanel
 
 # Braille dot positions: each cell is 2 wide x 4 tall
 # Bit layout for Unicode braille (U+2800 + bits):
@@ -1307,7 +1307,11 @@ class MoltuiApp(App):
             self._sync_visual_panel(view)
             vis.add_class("visible")
             focus_target = next(
-                (s for s in vis.query(Slider) if s.display),
+                (
+                    widget
+                    for widget in vis.query("*")
+                    if isinstance(widget, (Toggle, Slider)) and widget.display
+                ),
                 vis.query_one(RadioSet),
             )
             self.call_after_refresh(self.set_focus, focus_target)

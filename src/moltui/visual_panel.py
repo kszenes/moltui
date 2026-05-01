@@ -294,6 +294,8 @@ class VisualPanel(Widget):
         self.refresh()
 
     def compose(self) -> ComposeResult:
+        yield Label("Periodic", id="label-periodic")
+        yield Toggle("Show Box", value=True, id="checkbox-show-cell")
         yield Label("Animation", id="label-animation")
         yield Slider(
             "Vibrational Speed",
@@ -373,8 +375,6 @@ class VisualPanel(Widget):
             step=4.0,
             id="slider-shininess",
         )
-        yield Label("Periodic", id="label-periodic")
-        yield Toggle("Show Box", value=True, id="checkbox-show-cell")
         yield Static(
             "n/p nav; (shift-)tab toggle",
             id="visual-help",

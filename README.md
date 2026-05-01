@@ -89,7 +89,8 @@ Toggle between **light** and **dark** mode with `i`.
 
 | Format                | Geometry | Orbitals | Normal Modes |
 |-----------------------|:--------:|:--------:|:------------:|
-| **XYZ**               | ✓        | —        | —            |
+| **XYZ** / **extXYZ**  | ✓        | —        | —            |
+| **CIF**   | ✓        | —        | —            |
 | Gaussian **ZMAT**     | ✓        | —        | —            |
 | Gaussian **Cube**     | ✓        | ✓        | —            |
 | **Molden**            | ✓        | ✓        | ✓            |

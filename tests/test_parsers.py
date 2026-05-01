@@ -480,6 +480,225 @@ class TestParseCIF:
         assert len(mol.atoms) == 1
 
 
+class TestParseSymop:
+    """Unit tests for the symop string → (rotation, translation) parser."""
+
+    @staticmethod
+    def _check(op: str, rot_expected: list[list[float]], trans_expected: list[float]) -> None:
+        from moltui.parsers import _parse_symop
+
+        rot, trans = _parse_symop(op)
+        np.testing.assert_allclose(rot, np.array(rot_expected, dtype=np.float64), atol=1e-12)
+        np.testing.assert_allclose(trans, np.array(trans_expected, dtype=np.float64), atol=1e-12)
+
+    def test_identity(self):
+        self._check("x,y,z", [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0, 0, 0])
+
+    def test_inversion(self):
+        self._check("-x,-y,-z", [[-1, 0, 0], [0, -1, 0], [0, 0, -1]], [0, 0, 0])
+
+    def test_screw_21a(self):
+        self._check("1/2-x,1/2+y,-z", [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], [0.5, 0.5, 0.0])
+
+    def test_glide(self):
+        self._check("1/2+x,1/2-y,z", [[1, 0, 0], [0, -1, 0], [0, 0, 1]], [0.5, 0.5, 0.0])
+
+    def test_permutation(self):
+        self._check("y,x,-z+1/2", [[0, 1, 0], [1, 0, 0], [0, 0, -1]], [0, 0, 0.5])
+
+    def test_whitespace_tolerated(self):
+        self._check(
+            " 1/2 - x , 1/2 + y , - z ", [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], [0.5, 0.5, 0.0]
+        )
+
+    def test_multiplied_coefficient(self):
+        self._check("2*x,2y,z/2", [[2, 0, 0], [0, 2, 0], [0, 0, 0.5]], [0, 0, 0])
+
+    def test_thirds(self):
+        self._check("x+1/3,y+2/3,z", [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [1 / 3, 2 / 3, 0.0])
+
+    def test_leading_plus(self):
+        self._check("+x,+y,+z", [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0, 0, 0])
+
+    def test_quoted_input(self):
+        # Quotes can leak through if upstream forgot to strip them.
+        self._check("'x,y,z'", [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0, 0, 0])
+
+    def test_compound_translation(self):
+        self._check("x+1/2-1/2,y,z", [[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0, 0, 0])
+
+    def test_negative_var_after_translation(self):
+        self._check("1/4-y,1/4+x,1/4+z", [[0, -1, 0], [1, 0, 0], [0, 0, 1]], [0.25, 0.25, 0.25])
+
+    def test_invalid_component_count_raises(self):
+        from moltui.parsers import _parse_symop
+
+        with pytest.raises(ValueError, match="3 components"):
+            _parse_symop("x,y")
+
+    def test_empty_component_raises(self):
+        from moltui.parsers import _parse_symop
+
+        with pytest.raises(ValueError, match="empty component"):
+            _parse_symop("x,,z")
+
+
+class TestApplySymops:
+    @staticmethod
+    def _ops(specs: list[str]):
+        from moltui.parsers import _parse_symop
+
+        return [_parse_symop(s) for s in specs]
+
+    def test_identity_no_duplication(self):
+        from moltui.parsers import _apply_symops
+
+        fracs = np.array([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]])
+        symbols = ["A", "B"]
+        out_fracs, out_syms = _apply_symops(fracs, symbols, self._ops(["x,y,z"]))
+        assert out_syms == symbols
+        np.testing.assert_allclose(out_fracs, fracs)
+
+    def test_inversion_doubles_general_position(self):
+        from moltui.parsers import _apply_symops
+
+        fracs = np.array([[0.1, 0.2, 0.3]])
+        out_fracs, out_syms = _apply_symops(fracs, ["X"], self._ops(["x,y,z", "-x,-y,-z"]))
+        assert len(out_syms) == 2
+        np.testing.assert_allclose(np.sort(out_fracs[:, 0]), [0.1, 0.9])
+        np.testing.assert_allclose(np.sort(out_fracs[:, 1]), [0.2, 0.8])
+
+    def test_inversion_keeps_origin_atom_once(self):
+        # Atom on the inversion center maps to itself; should not duplicate.
+        from moltui.parsers import _apply_symops
+
+        fracs = np.array([[0.0, 0.0, 0.0]])
+        out_fracs, out_syms = _apply_symops(fracs, ["A"], self._ops(["x,y,z", "-x,-y,-z"]))
+        assert len(out_syms) == 1
+        np.testing.assert_allclose(out_fracs[0], [0.0, 0.0, 0.0])
+
+    def test_p21a_caffeine_multiplicity(self):
+        # P 21/a: 4 ops, generic site → 4 atoms.
+        from moltui.parsers import _apply_symops
+
+        fracs = np.array([[0.241, 0.222, -0.099]])
+        ops = self._ops(
+            [
+                "x,y,z",
+                "1/2-x,1/2+y,-z",
+                "-x,-y,-z",
+                "1/2+x,1/2-y,z",
+            ]
+        )
+        out_fracs, out_syms = _apply_symops(fracs, ["C"], ops)
+        assert len(out_syms) == 4
+        # All within [0, 1) after wrapping.
+        assert np.all((out_fracs >= -1e-9) & (out_fracs < 1.0))
+
+
+class TestCifSymmetryExpansion:
+    def test_caffeine_expands_25_to_100(self):
+        path = Path(__file__).parent.parent / "data" / "crystal" / "caffeine.cif"
+        if not path.exists():
+            pytest.skip("caffeine.cif not present")
+        mol = parse_cif(path)
+        # 25 atoms × 4 ops = 100 atoms with no special-position collapses.
+        assert len(mol.atoms) == 100
+        from collections import Counter
+
+        counts = Counter(a.element.symbol for a in mol.atoms)
+        # Asymmetric unit had: 8C, 4N, 3O, 10H → ×4
+        assert counts["C"] == 32
+        assert counts["N"] == 16
+        assert counts["O"] == 12
+        assert counts["H"] == 40
+
+    def test_graphite_identity_only_keeps_4_atoms(self, tmp_path: Path):
+        path = tmp_path / "graphite.cif"
+        path.write_text(GRAPHITE_CIF)
+        mol = parse_cif(path)
+        assert len(mol.atoms) == 4
+
+    def test_inversion_only_no_duplication_at_origin(self, tmp_path: Path):
+        # Single atom at the inversion center should not duplicate.
+        body = (
+            "data_inv\n"
+            "_cell_length_a 5.0\n"
+            "_cell_length_b 5.0\n"
+            "_cell_length_c 5.0\n"
+            "_cell_angle_alpha 90\n"
+            "_cell_angle_beta 90\n"
+            "_cell_angle_gamma 90\n"
+            "loop_\n_symmetry_equiv_pos_as_xyz\n"
+            "'x,y,z'\n'-x,-y,-z'\n"
+            "loop_\n"
+            "_atom_site_label\n_atom_site_type_symbol\n"
+            "_atom_site_fract_x\n_atom_site_fract_y\n_atom_site_fract_z\n"
+            "C1 C 0.0 0.0 0.0\n"
+        )
+        path = tmp_path / "inv.cif"
+        path.write_text(body)
+        mol = parse_cif(path)
+        assert len(mol.atoms) == 1
+
+    def test_inversion_doubles_general_site(self, tmp_path: Path):
+        body = (
+            "data_inv\n"
+            "_cell_length_a 5.0\n"
+            "_cell_length_b 5.0\n"
+            "_cell_length_c 5.0\n"
+            "_cell_angle_alpha 90\n"
+            "_cell_angle_beta 90\n"
+            "_cell_angle_gamma 90\n"
+            "loop_\n_symmetry_equiv_pos_as_xyz\n"
+            "'x,y,z'\n'-x,-y,-z'\n"
+            "loop_\n"
+            "_atom_site_label\n_atom_site_type_symbol\n"
+            "_atom_site_fract_x\n_atom_site_fract_y\n_atom_site_fract_z\n"
+            "C1 C 0.1 0.2 0.3\n"
+        )
+        path = tmp_path / "g.cif"
+        path.write_text(body)
+        mol = parse_cif(path)
+        assert len(mol.atoms) == 2
+
+    def test_alternative_symop_header(self, tmp_path: Path):
+        # Newer CIF dictionary uses _space_group_symop_operation_xyz.
+        body = (
+            "data_alt\n"
+            "_cell_length_a 5.0\n_cell_length_b 5.0\n_cell_length_c 5.0\n"
+            "_cell_angle_alpha 90\n_cell_angle_beta 90\n_cell_angle_gamma 90\n"
+            "loop_\n_space_group_symop_operation_xyz\n"
+            "'x,y,z'\n'-x,-y,-z'\n"
+            "loop_\n"
+            "_atom_site_label\n_atom_site_type_symbol\n"
+            "_atom_site_fract_x\n_atom_site_fract_y\n_atom_site_fract_z\n"
+            "C1 C 0.1 0.2 0.3\n"
+        )
+        path = tmp_path / "alt.cif"
+        path.write_text(body)
+        mol = parse_cif(path)
+        assert len(mol.atoms) == 2
+
+    def test_symop_loop_with_id_column(self, tmp_path: Path):
+        # caffeine-style: id column followed by op column.
+        body = (
+            "data_with_id\n"
+            "_cell_length_a 5.0\n_cell_length_b 5.0\n_cell_length_c 5.0\n"
+            "_cell_angle_alpha 90\n_cell_angle_beta 90\n_cell_angle_gamma 90\n"
+            "loop_\n_symmetry_equiv_pos_site_id\n_symmetry_equiv_pos_as_xyz\n"
+            "1 'x,y,z'\n2 '-x,-y,-z'\n"
+            "loop_\n"
+            "_atom_site_label\n_atom_site_type_symbol\n"
+            "_atom_site_fract_x\n_atom_site_fract_y\n_atom_site_fract_z\n"
+            "C1 C 0.1 0.2 0.3\n"
+        )
+        path = tmp_path / "id.cif"
+        path.write_text(body)
+        mol = parse_cif(path)
+        assert len(mol.atoms) == 2
+
+
 def test_parse_orca_hess_data_includes_normal_modes(tmp_path: Path) -> None:
     hess_file = _write_orca_hess(tmp_path)
     hess_data = parse_orca_hess_data(hess_file)

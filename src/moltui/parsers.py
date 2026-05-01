@@ -437,6 +437,104 @@ def _split_cif_tokens(line: str) -> list[str]:
     return tokens
 
 
+def _parse_symop(op: str) -> tuple[np.ndarray, np.ndarray]:
+    """Parse a CIF symmetry operation like ``"1/2-x,1/2+y,-z"``.
+
+    Returns a ``(rot, trans)`` pair such that the operation maps a fractional
+    coordinate ``v`` to ``rot @ v + trans``. Whitespace, ``*`` separators
+    between coefficients and variables (``2*x``), and divisions on either
+    side of a variable (``x/2`` or ``1/2*x``) are accepted.
+    """
+    parts = op.replace("'", "").replace('"', "").lower().split(",")
+    if len(parts) != 3:
+        raise ValueError(f"symop must have 3 components: {op!r}")
+    rot = np.zeros((3, 3), dtype=np.float64)
+    trans = np.zeros(3, dtype=np.float64)
+    for row, raw in enumerate(parts):
+        s = raw.replace(" ", "").replace("\t", "")
+        if not s:
+            raise ValueError(f"empty component in symop: {op!r}")
+        i = 0
+        while i < len(s):
+            sign = 1.0
+            if s[i] == "+":
+                i += 1
+            elif s[i] == "-":
+                sign = -1.0
+                i += 1
+            num_start = i
+            while i < len(s) and (s[i].isdigit() or s[i] == "."):
+                i += 1
+            num_str = s[num_start:i]
+            denom = 1.0
+            if i < len(s) and s[i] == "/":
+                i += 1
+                d_start = i
+                while i < len(s) and s[i].isdigit():
+                    i += 1
+                if i == d_start:
+                    raise ValueError(f"missing denominator in symop component: {raw!r}")
+                denom = float(s[d_start:i])
+            if i < len(s) and s[i] == "*":
+                i += 1
+            var: str | None = None
+            if i < len(s) and s[i] in ("x", "y", "z"):
+                var = s[i]
+                i += 1
+                if i < len(s) and s[i] == "/":
+                    i += 1
+                    d_start = i
+                    while i < len(s) and s[i].isdigit():
+                        i += 1
+                    if i == d_start:
+                        raise ValueError(f"missing denominator in symop component: {raw!r}")
+                    denom *= float(s[d_start:i])
+            if num_str == "" and var is None:
+                raise ValueError(f"unparsable symop component: {raw!r}")
+            magnitude = float(num_str) if num_str else 1.0
+            coef = sign * magnitude / denom
+            if var is None:
+                trans[row] += coef
+            else:
+                col = "xyz".index(var)
+                rot[row, col] += coef
+    return rot, trans
+
+
+def _apply_symops(
+    fracs: np.ndarray,
+    symbols: list[str],
+    symops: list[tuple[np.ndarray, np.ndarray]],
+    tol: float = 1e-4,
+) -> tuple[np.ndarray, list[str]]:
+    """Expand a fractional-coord atom set by a list of symmetry operations.
+
+    Atoms produced by different operations that map to the same fractional
+    site (modulo the lattice) are deduplicated. Returns ``(fracs, symbols)``
+    for the expanded set; original atoms are guaranteed to appear first.
+    """
+    if not symops:
+        return fracs, list(symbols)
+    expanded_fracs: list[np.ndarray] = []
+    expanded_symbols: list[str] = []
+    seen_keys: set[tuple[int, int, int]] = set()
+    scale = int(round(1.0 / tol))
+    for rot, trans in symops:
+        for row, sym in zip(fracs, symbols):
+            mapped = rot @ row + trans
+            mapped_mod = mapped - np.floor(mapped)
+            # Snap near-integer-1 components to 0 to avoid (0, 0, 1.0 - eps)
+            # collapsing to a different cell from the canonical (0, 0, 0).
+            mapped_mod = np.where(mapped_mod > 1.0 - tol, 0.0, mapped_mod)
+            key = tuple(int(round(c * scale)) % scale for c in mapped_mod)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            expanded_fracs.append(mapped_mod)
+            expanded_symbols.append(sym)
+    return np.array(expanded_fracs, dtype=np.float64), expanded_symbols
+
+
 def _element_from_cif_label(label: str) -> str:
     """Extract an element symbol from a CIF atom label like 'C1', 'Fe2+', 'H_a'."""
     label = label.strip()
@@ -475,6 +573,9 @@ def parse_cif(filepath: str | Path) -> Molecule:
     }
 
     atoms: list[Atom] = []
+    frac_atoms_symbols: list[str] = []
+    frac_atoms_coords: list[np.ndarray] = []
+    symops: list[tuple[np.ndarray, np.ndarray]] = []
 
     i = 0
     while i < len(lines):
@@ -505,6 +606,35 @@ def parse_cif(filepath: str | Path) -> Molecule:
                 i += 1
 
             atom_site_headers = [h for h in headers if h.startswith("_atom_site_")]
+            symop_header_names = (
+                "_symmetry_equiv_pos_as_xyz",
+                "_space_group_symop_operation_xyz",
+            )
+            symop_col = next(
+                (idx for idx, h in enumerate(headers) if h in symop_header_names), None
+            )
+            if symop_col is not None:
+                while i < len(lines):
+                    s = lines[i].strip()
+                    if not s or s.lower() == "loop_" or s.startswith("_") or s.startswith("data_"):
+                        break
+                    tokens = _split_cif_tokens(s)
+                    if len(tokens) != len(headers):
+                        # Some CIFs put the symop on its own line as a single
+                        # quoted/unquoted token, with the rest of the row on
+                        # the previous line — fall back to using the first
+                        # token if shapes don't match.
+                        if len(tokens) >= symop_col + 1:
+                            op_str = tokens[symop_col]
+                        else:
+                            i += 1
+                            continue
+                    else:
+                        op_str = tokens[symop_col]
+                    rot, trans = _parse_symop(op_str)
+                    symops.append((rot, trans))
+                    i += 1
+                continue
             if not atom_site_headers or len(atom_site_headers) != len(headers):
                 while i < len(lines):
                     s = lines[i].strip()
@@ -584,6 +714,9 @@ def parse_cif(filepath: str | Path) -> Molecule:
                 )
                 pos = coords @ lattice if use_fractional else coords
                 atoms.append(Atom(element=get_element(symbol_clean), position=pos))
+                if use_fractional:
+                    frac_atoms_symbols.append(symbol_clean)
+                    frac_atoms_coords.append(coords)
                 i += 1
             continue
 
@@ -602,6 +735,21 @@ def parse_cif(filepath: str | Path) -> Molecule:
             cell["beta"],
             cell["gamma"],
         )
+
+    # Apply symmetry expansion when we have ops, fractional atoms, and a cell.
+    if symops and mol_lattice is not None and frac_atoms_coords:
+        # Drop the trivial single-identity case to avoid duplicating atoms via
+        # near-zero rounding in dedupe; the expansion path is a no-op anyway.
+        nontrivial = any(
+            not (np.allclose(rot, np.eye(3)) and np.allclose(trans, 0.0)) for rot, trans in symops
+        )
+        if nontrivial or len(symops) > 1:
+            fracs = np.array(frac_atoms_coords, dtype=np.float64)
+            expanded_fracs, expanded_symbols = _apply_symops(fracs, frac_atoms_symbols, symops)
+            atoms = [
+                Atom(element=get_element(sym), position=frac @ mol_lattice)
+                for sym, frac in zip(expanded_symbols, expanded_fracs)
+            ]
 
     mol = Molecule(atoms=atoms, bonds=[], lattice=mol_lattice)
     if mol_lattice is not None:

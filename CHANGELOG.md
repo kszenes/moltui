@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add support for periodic lattices via extended XYZ and CIF formats
+
 ## [v0.4.2] - 2026-04-28
 
 - Fix Windows spurious line break characters (contributed by [scohenjanes5](https://github.com/scohenjanes5) in [#14](https://github.com/kszenes/moltui/pull/14))

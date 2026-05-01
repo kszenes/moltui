@@ -466,6 +466,113 @@ class ImageRenderer:
     def _highlight_color() -> tuple[int, int, int]:
         return (255, 255, 50)
 
+    def _draw_line(
+        self,
+        p1: np.ndarray,
+        p2: np.ndarray,
+        color: tuple[int, int, int],
+        *,
+        dash_on: int | None = None,
+        dash_off: int = 0,
+        line_width: int = 1,
+    ):
+        """Draw a single-pixel-wide 3D line with z-buffer testing."""
+        sx1, sy1, sz1 = self._project(p1)
+        sx2, sy2, sz2 = self._project(p2)
+        if math.isnan(sx1) or math.isnan(sx2):
+            return
+
+        dx = sx2 - sx1
+        dy = sy2 - sy1
+        steps = int(max(abs(dx), abs(dy))) + 1
+        if steps <= 1:
+            return
+
+        ts = np.linspace(0.0, 1.0, steps)
+        xs = np.round(sx1 + dx * ts).astype(int)
+        ys = np.round(sy1 + dy * ts).astype(int)
+        zs = sz1 + (sz2 - sz1) * ts
+
+        if line_width > 1:
+            radius = line_width - 1
+            expanded_xs: list[np.ndarray] = []
+            expanded_ys: list[np.ndarray] = []
+            expanded_zs: list[np.ndarray] = []
+            for ox in range(-radius, radius + 1):
+                for oy in range(-radius, radius + 1):
+                    expanded_xs.append(xs + ox)
+                    expanded_ys.append(ys + oy)
+                    expanded_zs.append(zs)
+            xs = np.concatenate(expanded_xs)
+            ys = np.concatenate(expanded_ys)
+            zs = np.concatenate(expanded_zs)
+
+        if dash_on is not None and dash_on > 0:
+            period = dash_on + max(0, dash_off)
+            if period > 0:
+                dash_mask = (np.arange(xs.size) % period) < dash_on
+                xs, ys, zs = xs[dash_mask], ys[dash_mask], zs[dash_mask]
+                if xs.size == 0:
+                    return
+
+        valid = (xs >= 0) & (xs < self.width) & (ys >= 0) & (ys < self.height)
+        xs, ys, zs = xs[valid], ys[valid], zs[valid]
+        if xs.size == 0:
+            return
+
+        z_pass = zs < self.z_buf[ys, xs]
+        xs, ys, zs = xs[z_pass], ys[z_pass], zs[z_pass]
+        if xs.size == 0:
+            return
+
+        self.z_buf[ys, xs] = zs
+        self.pixels[ys, xs] = np.array(color, dtype=np.uint8)
+
+    def _render_cell(
+        self,
+        lattice: np.ndarray,
+        centroid: np.ndarray,
+        rot: np.ndarray,
+        camera_distance: float,
+        pan: tuple[float, float],
+        show_cell: bool = True,
+        cell_dash: tuple[int, int] | None = None,
+        cell_line_width: int = 1,
+    ):
+        """Draw the unit-cell wireframe."""
+        if not show_cell:
+            return
+
+        unit_a = lattice[0]
+        unit_b = lattice[1]
+        unit_c = lattice[2]
+
+        color = (150, 150, 150)
+        corners = []
+        for c0 in (0.0, 1.0):
+            for c1 in (0.0, 1.0):
+                for c2 in (0.0, 1.0):
+                    world = c0 * unit_a + c1 * unit_b + c2 * unit_c
+                    p = rot @ (world - centroid)
+                    p[0] += pan[0]
+                    p[1] += pan[1]
+                    p[2] += camera_distance
+                    corners.append(p)
+
+        dash_on, dash_off = cell_dash if cell_dash is not None else (None, 0)
+        for i in range(8):
+            for axis in range(3):
+                j = i ^ (1 << (2 - axis))
+                if j > i:
+                    self._draw_line(
+                        corners[i],
+                        corners[j],
+                        color,
+                        dash_on=dash_on,
+                        dash_off=dash_off,
+                        line_width=cell_line_width,
+                    )
+
     def render_molecule(
         self,
         molecule: Molecule,
@@ -476,12 +583,20 @@ class ImageRenderer:
         highlighted_atoms: set[int] | None = None,
         licorice: bool = False,
         vdw: bool = False,
+        show_cell: bool = True,
+        cell_dash: tuple[int, int] | None = None,
+        cell_line_width: int = 1,
     ):
         self.clear()
         if not molecule.atoms:
             return
 
-        centroid = molecule.center()
+        if molecule.lattice is not None:
+            # Anchor on the unit-cell center so toggling ghost replication
+            # doesn't shift the camera relative to the cell box.
+            centroid = 0.5 * (molecule.lattice[0] + molecule.lattice[1] + molecule.lattice[2])
+        else:
+            centroid = molecule.center()
         hl = highlighted_atoms or set()
         has_hl = len(hl) > 0
 
@@ -489,6 +604,18 @@ class ImageRenderer:
         if isosurfaces:
             for mesh in isosurfaces:
                 self.render_isosurface(mesh, rot, camera_distance, centroid, pan)
+
+        if molecule.lattice is not None:
+            self._render_cell(
+                molecule.lattice,
+                centroid,
+                rot,
+                camera_distance,
+                pan,
+                show_cell,
+                cell_dash,
+                cell_line_width,
+            )
 
         transformed = []
         for atom in molecule.atoms:
@@ -514,7 +641,7 @@ class ImageRenderer:
         for i in atom_order:
             atom = molecule.atoms[i]
             if vdw:
-                radius = atom.element.vdw_radius
+                radius = atom.element.vdw_radius * self.atom_scale
             elif licorice:
                 radius = self.bond_radius
             else:
@@ -542,6 +669,9 @@ def render_scene(
     shininess: float | None = None,
     atom_scale: float | None = None,
     bond_radius: float | None = None,
+    show_cell: bool = True,
+    cell_dash: tuple[int, int] | None = None,
+    cell_line_width: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Render with supersampling anti-aliasing.
 
@@ -570,6 +700,9 @@ def render_scene(
         highlighted_atoms=highlighted_atoms,
         licorice=licorice,
         vdw=vdw,
+        show_cell=show_cell,
+        cell_dash=cell_dash,
+        cell_line_width=cell_line_width,
     )
     hit = np.isfinite(r.z_buf)
     if ssaa == 1:

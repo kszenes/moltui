@@ -34,7 +34,7 @@ from .parsers import (
     parse_orca_hess_data,
     parse_xyz_trajectory,
 )
-from .visual_panel import Slider, VisualPanel
+from .visual_panel import Slider, Toggle, VisualPanel
 
 # Braille dot positions: each cell is 2 wide x 4 tall
 # Bit layout for Unicode braille (U+2800 + bits):
@@ -50,6 +50,22 @@ _BRAILLE_MAP = np.array(
     dtype=np.uint8,
 )
 _ZERO_MODE_FREQ_TOL_CM1 = 10.0
+
+
+def _filter_rigid_body_modes(
+    mode_vectors: np.ndarray,
+    frequencies: np.ndarray | None,
+    threshold_cm1: float = _ZERO_MODE_FREQ_TOL_CM1,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Drop translational/rotational modes (|freq| below threshold)."""
+    if frequencies is None or len(frequencies) == 0:
+        return mode_vectors, frequencies
+    keep = np.abs(np.asarray(frequencies, dtype=np.float64)) >= threshold_cm1
+    if keep.all():
+        return mode_vectors, frequencies
+    return mode_vectors[keep], frequencies[keep]
+
+
 _VIEW_GEOMETRY = "geometry"
 _VIEW_MO = "mo"
 _VIEW_NORMAL = "normal"
@@ -67,6 +83,8 @@ class ExportRenderKwargs(TypedDict):
     shininess: float
     atom_scale: float
     bond_radius: float
+    cell_dash: tuple[int, int] | None
+    cell_line_width: int
 
 
 def _export_render_kwargs(view: "MoleculeView") -> ExportRenderKwargs:
@@ -82,7 +100,32 @@ def _export_render_kwargs(view: "MoleculeView") -> ExportRenderKwargs:
         "shininess": view.shininess,
         "atom_scale": view.atom_scale,
         "bond_radius": view.bond_radius,
+        "cell_dash": (5, 3),
+        "cell_line_width": 2,
     }
+
+
+def _build_view_render_scene(
+    view: "MoleculeView",
+) -> tuple[Molecule, list[IsosurfaceMesh] | None, bool]:
+    """Build the molecule/isosurface scene shared by live rendering and export."""
+    if view.molecule is None:
+        raise ValueError("view must have a molecule before rendering")
+
+    mol = view.molecule
+    if mol.lattice is not None and view.show_replication:
+        mol = mol.with_bonded_periodic_images()
+    elif mol.lattice is not None:
+        mol = mol.with_in_cell_bonds()
+
+    cell_lattice = mol.lattice if view.show_cell else None
+    if not view.show_bonds:
+        mol = Molecule(atoms=mol.atoms, bonds=[], lattice=cell_lattice)
+    elif cell_lattice is not mol.lattice:
+        mol = Molecule(atoms=mol.atoms, bonds=mol.bonds, lattice=cell_lattice)
+
+    isos = view.isosurfaces if view.show_orbitals else None
+    return mol, isos, view.show_cell
 
 
 def _compute_mo_isosurfaces(
@@ -95,6 +138,29 @@ def _compute_mo_isosurfaces(
 
     cube_data = evaluate_mo(orbital_data, mo_idx, grid_shape=grid_shape)
     return extract_isosurfaces(cube_data, isovalue=isovalue)
+
+
+def _compute_parent_indices(base: Molecule, augmented: Molecule) -> list[int]:
+    """Map each augmented atom back to its originating in-cell atom index."""
+    if base.lattice is None:
+        return list(range(len(augmented.atoms)))
+    inv = np.linalg.inv(base.lattice)
+    ref = np.array([a.position @ inv for a in base.atoms], dtype=np.float64)
+    ref_mod = ref - np.floor(ref + 1e-6)
+    parents: list[int] = []
+    for atom in augmented.atoms:
+        frac = atom.position @ inv
+        frac_mod = frac - np.floor(frac + 1e-6)
+        delta = ref_mod - frac_mod
+        delta -= np.round(delta)
+        d2 = np.einsum("ij,ij->i", delta, delta)
+        parents.append(int(np.argmin(d2)))
+    return parents
+
+
+def _position_key(position: np.ndarray) -> tuple[int, int, int]:
+    """Stable key for matching rendered atoms back to selected display atoms."""
+    return tuple(np.round(np.asarray(position, dtype=np.float64) * 1000).astype(int).tolist())
 
 
 @dataclass
@@ -114,6 +180,17 @@ class NormalModeData:
     amplitude: float = 1.0
 
 
+@dataclass
+class DisplayGeometry:
+    molecule: Molecule
+    parent_indices: list[int] | None = None
+
+    def parent_index(self, atom_index: int) -> int:
+        if self.parent_indices is None or not (0 <= atom_index < len(self.parent_indices)):
+            return atom_index
+        return self.parent_indices[atom_index]
+
+
 class MoleculeView(Widget):
     """Braille-based 3D molecule renderer."""
 
@@ -126,12 +203,15 @@ class MoleculeView(Widget):
         self.rot_matrix = rotation_matrix(-0.2, -0.5, 0.0)
         self.camera_distance = 4.0
         self.show_bonds = True
+        self.show_cell = True
+        self.show_replication = True
         self.show_orbitals = True
         self.dark_bg = True
         self.pan_x = 0.0
         self.pan_y = 0.0
         self.pan_mode = False
         self.highlighted_atoms: set[int] = set()
+        self.highlighted_display_positions: set[tuple[int, int, int]] = set()
         self.show_atom_numbers = False
         self.licorice = False
         self.vdw = False
@@ -164,6 +244,12 @@ class MoleculeView(Widget):
         self._cached_size = (0, 0)
         self.refresh()
 
+    def _compute_parent_indices(self, augmented: Molecule) -> list[int]:
+        """For each atom in `augmented`, return the index of the in-cell parent."""
+        if self.molecule is None:
+            return list(range(len(augmented.atoms)))
+        return _compute_parent_indices(self.molecule, augmented)
+
     def render_line(self, y: int) -> Strip:
         w, h = self.size.width, self.size.height
         if (w, h) != self._cached_size:
@@ -185,12 +271,17 @@ class MoleculeView(Widget):
         bg = (0, 0, 0) if self.dark_bg else (255, 255, 255)
         rot = self.rot_matrix
 
-        mol = self.molecule
-        if not self.show_bonds:
-            mol = Molecule(atoms=mol.atoms, bonds=[])
-
-        isos = self.isosurfaces if self.show_orbitals else None
-        hl = self.highlighted_atoms if self.highlighted_atoms else None
+        mol, isos, show_cell = _build_view_render_scene(self)
+        hl: set[int] | None = None
+        if self.highlighted_display_positions:
+            hl_set = {
+                idx
+                for idx, atom in enumerate(mol.atoms)
+                if _position_key(atom.position) in self.highlighted_display_positions
+            }
+            hl = hl_set or None
+        elif self.highlighted_atoms:
+            hl = self.highlighted_atoms
         pixels, hit = render_scene(
             px_w,
             px_h,
@@ -210,6 +301,7 @@ class MoleculeView(Widget):
             shininess=self.shininess,
             atom_scale=self.atom_scale,
             bond_radius=self.bond_radius,
+            show_cell=show_cell,
         )
 
         blocks = pixels.reshape(rows, 4, cols, 2, 3)
@@ -236,13 +328,20 @@ class MoleculeView(Widget):
         if self.show_atom_numbers and self.molecule is not None:
             fov = 1.5
             scale = min(px_w, px_h) / 2
-            centroid = self.molecule.center()
+            # Match the renderer's centroid: cell center when periodic, else mean.
+            if mol.lattice is not None:
+                centroid = 0.5 * (mol.lattice[0] + mol.lattice[1] + mol.lattice[2])
+            else:
+                centroid = mol.center()
             label_style = Style(
                 color="rgb(255,255,0)" if self.dark_bg else "rgb(0,0,180)",
                 bgcolor=f"rgb({bg[0]},{bg[1]},{bg[2]})",
                 bold=True,
             )
-            for idx, atom in enumerate(self.molecule.atoms):
+            # Map each rendered atom (originals + ghosts) to its parent index
+            # so ghost atoms inherit their parent's number.
+            parent_lookup = self._compute_parent_indices(mol)
+            for idx, atom in enumerate(mol.atoms):
                 pos = rot @ (atom.position - centroid)
                 pos[0] += self.pan_x
                 pos[1] += self.pan_y
@@ -254,7 +353,8 @@ class MoleculeView(Widget):
                 # Convert pixel coords to terminal cell coords
                 cell_col = int(sx / 2)
                 cell_row = int(sy / 4) - 1  # place label above atom
-                label = str(idx + 1)
+                label_idx = parent_lookup[idx] if idx < len(parent_lookup) else idx
+                label = str(label_idx + 1)
                 for ci, ch in enumerate(label):
                     c = cell_col + ci
                     if 0 <= cell_row < rows and 0 <= c < cols:
@@ -338,7 +438,8 @@ class MoltuiApp(App):
         Binding("t", "toggle_mode", "Pan/Rot"),
         Binding("c", "center", "Center", show=False),
         Binding("r", "reset_view", "Reset"),
-        Binding("b", "toggle_bonds", "Bonds"),
+        Binding("B", "toggle_bonds", "Bonds"),
+        Binding("b", "toggle_replication", "Ghosts"),
         Binding("i", "toggle_bg", "Bg"),
         Binding("v", "toggle_style", "Style"),
         Binding("number_sign", "toggle_atom_numbers", "#Nums"),
@@ -370,6 +471,7 @@ class MoltuiApp(App):
         self.molecule = molecule
         self.filepath = filepath
         self._isosurfaces = isosurfaces or []
+        self._display_geometry: DisplayGeometry | None = None
         self.orbital_data = orbital_data
         self.current_mo = current_mo
         self._cube_data: CubeData | None = None
@@ -379,8 +481,6 @@ class MoltuiApp(App):
         self._mo_switch_task: asyncio.Task[None] | None = None
         self.trajectory_data = trajectory_data
         self.normal_mode_data = normal_mode_data
-        if self.normal_mode_data is not None and self.normal_mode_data.mode_vectors.shape[0] > 0:
-            self.normal_mode_data.mode_index = self._first_vibrational_mode_index()
         self._startup_toast: str | None = None
         self._view_mode = _VIEW_GEOMETRY
         self._panel_hidden = False
@@ -400,11 +500,31 @@ class MoltuiApp(App):
             yield VisualPanel()
         yield Footer()
 
+    def _build_display_geometry(self, *, replicate: bool | None = None) -> DisplayGeometry:
+        """Build the molecule shown in the geometry sidebar."""
+        mol = self.molecule
+        if mol.lattice is None:
+            return DisplayGeometry(molecule=mol)
+
+        if replicate is None:
+            view = self._query_molecule_view()
+            replicate = bool(view and view.show_replication)
+
+        if replicate:
+            augmented = mol.with_bonded_periodic_images()
+            return DisplayGeometry(
+                molecule=augmented,
+                parent_indices=_compute_parent_indices(mol, augmented),
+            )
+
+        return DisplayGeometry(molecule=mol.with_in_cell_bonds())
+
     def on_mount(self) -> None:
         view = self.query_one(MoleculeView)
         view.set_molecule(self.molecule, self._isosurfaces)
         panel = self.query_one(GeometryPanel)
-        panel.set_molecule(self.molecule)
+        self._display_geometry = self._build_display_geometry()
+        panel.set_molecule(self._display_geometry.molecule, self._display_geometry.parent_indices)
         if self._has_orbital_mos():
             md = self.orbital_data
             assert md is not None
@@ -499,7 +619,7 @@ class MoltuiApp(App):
             if not geom.has_class("visible"):
                 return False
         if action in ("cycle_view_mode_next", "cycle_view_mode_prev"):
-            if len(self._available_view_modes()) <= 1 and not self._panel_hidden:
+            if len(self._available_view_modes()) <= 1 and self._mode_panel_active():
                 return False
         return True
 
@@ -587,53 +707,12 @@ class MoltuiApp(App):
             if self.normal_mode_data is not None
             else 0.0,
             trajectory_fps=1.0 / self._playback_interval_sec,
+            has_lattice=view.molecule is not None and view.molecule.lattice is not None,
+            show_cell=view.show_cell,
         )
 
     def _has_animation(self) -> bool:
         return self._has_normal_modes or self._has_trajectory
-
-    def _is_linear_molecule(self) -> bool:
-        coords = np.array([atom.position for atom in self.molecule.atoms], dtype=np.float64)
-        if coords.shape[0] <= 2:
-            return True
-        centered = coords - coords.mean(axis=0)
-        ref_idx = None
-        for i in range(centered.shape[0]):
-            if np.linalg.norm(centered[i]) > 1e-8:
-                ref_idx = i
-                break
-        if ref_idx is None:
-            return True
-        ref = centered[ref_idx]
-        for i in range(centered.shape[0]):
-            if i == ref_idx:
-                continue
-            if np.linalg.norm(np.cross(ref, centered[i])) > 1e-6:
-                return False
-        return True
-
-    def _first_vibrational_mode_index(self) -> int:
-        if self.normal_mode_data is None:
-            return 0
-        n_atoms = len(self.molecule.atoms)
-        if n_atoms <= 1:
-            return 0
-        n_modes = self.normal_mode_data.mode_vectors.shape[0]
-        if n_modes <= 1:
-            return 0
-
-        expected_zero_modes = 5 if self._is_linear_molecule() else 6
-        freqs = self.normal_mode_data.frequencies
-
-        # If frequencies are available, only skip rigid-body modes when the file
-        # actually appears to include them at the beginning.
-        if freqs is not None and len(freqs) >= expected_zero_modes:
-            leading = np.asarray(freqs[:expected_zero_modes], dtype=np.float64)
-            if np.all(np.abs(leading) < _ZERO_MODE_FREQ_TOL_CM1):
-                return min(expected_zero_modes, n_modes - 1)
-
-        # Many Molden writers store only vibrational modes (already trimmed).
-        return 0
 
     def _apply_active_animation_geometry(self) -> None:
         recompute_bonds = False
@@ -650,7 +729,7 @@ class MoltuiApp(App):
         for i, atom in enumerate(self.molecule.atoms):
             atom.position = coords[i].copy()
         if recompute_bonds:
-            self.molecule.detect_bonds()
+            self.molecule.detect_bonds_auto()
         view = self._query_molecule_view()
         if view is None:
             # Timer callbacks can race with app teardown in tests/CI.
@@ -659,7 +738,7 @@ class MoltuiApp(App):
         view._invalidate_cache()
         if self._view_mode == _VIEW_GEOMETRY:
             try:
-                self.query_one(GeometryPanel).refresh_measurements()
+                self._refresh_geometry_panel()
             except NoMatches:
                 self._stop_playback()
                 return
@@ -674,6 +753,8 @@ class MoltuiApp(App):
         view = self._query_molecule_view()
         if view is None:
             return
+        if self.molecule.lattice is not None:
+            self._refresh_geometry_panel()
         view._invalidate_cache()
         self._update_title()
 
@@ -803,6 +884,26 @@ class MoltuiApp(App):
         view.show_bonds = not view.show_bonds
         view._invalidate_cache()
 
+    def action_toggle_replication(self) -> None:
+        if self.molecule is None or self.molecule.lattice is None:
+            return
+        view = self.query_one(MoleculeView)
+        view.show_replication = not view.show_replication
+        view.highlighted_display_positions = set()
+        view._invalidate_cache()
+        self._refresh_geometry_panel()
+
+    def _refresh_geometry_panel(self) -> None:
+        try:
+            panel = self.query_one(GeometryPanel)
+        except NoMatches:
+            return
+        self._display_geometry = self._build_display_geometry()
+        panel.set_molecule(self._display_geometry.molecule, self._display_geometry.parent_indices)
+        if panel.has_class("visible"):
+            tabs = panel.query_one(TabbedContent)
+            panel._emit_current_highlight(panel._table_for_tab(tabs.active))
+
     def action_toggle_bg(self) -> None:
         view = self.query_one(MoleculeView)
         view.dark_bg = not view.dark_bg
@@ -824,6 +925,7 @@ class MoltuiApp(App):
         view.pan_y = 0.0
         view.pan_mode = False
         view.highlighted_atoms = set()
+        view.highlighted_display_positions = set()
         if view.molecule:
             view.camera_distance = max(4.0, view.molecule.radius() * 3.0)
         view._invalidate_cache()
@@ -878,10 +980,7 @@ class MoltuiApp(App):
         if view.molecule is None:
             return
 
-        mol = view.molecule
-        if not view.show_bonds:
-            mol = Molecule(atoms=mol.atoms, bonds=[])
-        isos = self._isosurfaces if view.show_orbitals else None
+        mol, isos, show_cell = _build_view_render_scene(view)
 
         export_w, export_h = 1600, 1200
         bg = (0, 0, 0) if view.dark_bg else (255, 255, 255)
@@ -895,6 +994,7 @@ class MoltuiApp(App):
             view.camera_distance,
             bg_color=bg,
             isosurfaces=isos,
+            show_cell=show_cell,
             **_export_render_kwargs(view),
         )
 
@@ -1045,6 +1145,7 @@ class MoltuiApp(App):
             or mode_panel.has_class("visible")
             or vis.has_class("visible")
         ):
+            self._sidebar_was_visual = vis.has_class("visible")
             self._close_panels()
             self._panel_hidden = True
             view = self.query_one(MoleculeView)
@@ -1054,6 +1155,10 @@ class MoltuiApp(App):
     def action_toggle_sidebar(self) -> None:
         if self._panel_is_open():
             self.action_close_panel()
+            return
+        if getattr(self, "_sidebar_was_visual", False):
+            self._sidebar_was_visual = False
+            self.action_toggle_visual()
             return
         self._set_view_mode(self._view_mode, reveal_panel=True)
 
@@ -1067,6 +1172,7 @@ class MoltuiApp(App):
         if geom.has_class("visible"):
             geom.remove_class("visible")
             view.highlighted_atoms = set()
+            view.highlighted_display_positions = set()
         if mo.has_class("visible"):
             mo.remove_class("visible")
         if mode_panel.has_class("visible"):
@@ -1074,10 +1180,32 @@ class MoltuiApp(App):
         if vis.has_class("visible"):
             vis.remove_class("visible")
 
+    def _mode_panel_active(self) -> bool:
+        """True when the panel for the current view mode is visible.
+
+        The visual panel is a separate sidebar and is not counted as the
+        "mode panel"; cycling should still surface the mode panel even if
+        the visual panel happens to be open.
+        """
+        if self._panel_hidden:
+            return False
+        try:
+            if self._view_mode == _VIEW_GEOMETRY:
+                return self.query_one(GeometryPanel).has_class("visible")
+            if self._view_mode == _VIEW_MO:
+                return self.query_one(MOPanel).has_class("visible")
+            if self._view_mode == _VIEW_NORMAL:
+                return self.query_one(NormalModePanel).has_class("visible")
+        except NoMatches:
+            return False
+        return False
+
     def action_cycle_view_mode_next(self) -> None:
         modes = self._available_view_modes()
+        if not modes:
+            return
         if len(modes) <= 1:
-            if self._panel_hidden and modes:
+            if not self._mode_panel_active():
                 self._set_view_mode(modes[0], reveal_panel=True)
             return
         idx = modes.index(self._view_mode) if self._view_mode in modes else 0
@@ -1085,8 +1213,10 @@ class MoltuiApp(App):
 
     def action_cycle_view_mode_prev(self) -> None:
         modes = self._available_view_modes()
+        if not modes:
+            return
         if len(modes) <= 1:
-            if self._panel_hidden and modes:
+            if not self._mode_panel_active():
                 self._set_view_mode(modes[0], reveal_panel=True)
             return
         idx = modes.index(self._view_mode) if self._view_mode in modes else 0
@@ -1169,7 +1299,11 @@ class MoltuiApp(App):
             self._sync_visual_panel(view)
             vis.add_class("visible")
             focus_target = next(
-                (s for s in vis.query(Slider) if s.display),
+                (
+                    widget
+                    for widget in vis.query("*")
+                    if isinstance(widget, (Toggle, Slider)) and widget.display
+                ),
                 vis.query_one(RadioSet),
             )
             self.call_after_refresh(self.set_focus, focus_target)
@@ -1227,6 +1361,12 @@ class MoltuiApp(App):
             self._stop_playback()
             self._start_playback()
 
+    def on_visual_panel_cell_changed(self, event: VisualPanel.CellChanged) -> None:
+        view = self.query_one(MoleculeView)
+        view.show_cell = event.show_cell
+        view.highlighted_display_positions = set()
+        view._invalidate_cache()
+
     def on_mopanel_moselected(self, event: MOPanel.MOSelected) -> None:
         self._set_current_mo(event.mo_index)
 
@@ -1241,6 +1381,13 @@ class MoltuiApp(App):
         view = self._query_molecule_view()
         if view is None:
             return
+        display = self._display_geometry
+        positions: set[tuple[int, int, int]] = set()
+        if display is not None:
+            for idx in event.atom_indices:
+                if 0 <= idx < len(display.molecule.atoms):
+                    positions.add(_position_key(display.molecule.atoms[idx].position))
+        view.highlighted_display_positions = positions
         view.highlighted_atoms = set(event.atom_indices)
         view._invalidate_cache()
 
@@ -1322,6 +1469,10 @@ def _detect_filetype(filepath: str) -> str:
         return "molden"
     if suffix in (".fchk", ".fch"):
         return "fchk"
+    if suffix in (".xyz", ".extxyz"):
+        return "xyz"
+    if suffix == ".cif":
+        return "cif"
     if suffix in (".h5", ".hdf5") and path.is_file():
         return "trexio"
     if suffix == ".trexio" and (path.is_file() or path.is_dir()):
@@ -1334,22 +1485,31 @@ def _detect_filetype(filepath: str) -> str:
         raise ValueError(
             f"{path.resolve()!s} is a directory and is not a readable TREXIO text archive. "
         )
-    with open(filepath) as f:
-        for line in f:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            if "[molden format]" in stripped.lower():
-                return "molden"
-            if stripped.lower() == "$orca_hessian_file":
-                return "hess"
-            try:
-                int(stripped)
-                return "xyz"
-            except ValueError:
-                pass
-            return "cube"
-    return suffix.lstrip(".")
+    try:
+        with open(filepath) as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if "[molden format]" in stripped.lower():
+                    return "molden"
+                if stripped.lower() == "$orca_hessian_file":
+                    return "hess"
+                try:
+                    int(stripped)
+                    return "xyz"
+                except ValueError:
+                    pass
+                break
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Could not read {filepath!s}: {exc}") from exc
+    if suffix in (".cube", ".cub"):
+        return "cube"
+    raise ValueError(
+        f"Unsupported file format: {filepath!s}. "
+        "Supported formats: .xyz, .extxyz, .cif, .cube, .molden, .fchk, .hess, "
+        ".zmat, .gbw, .h5/.hdf5/.trexio (TREXIO)."
+    )
 
 
 def _convert_gbw_to_molden(gbw_path: str | Path) -> Path:
@@ -1484,10 +1644,13 @@ def run():
             molecule = orbital_data.molecule
             if orbital_data.normal_modes is not None:
                 eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])
+                vib_modes, vib_freqs = _filter_rigid_body_modes(
+                    orbital_data.normal_modes, orbital_data.mode_frequencies
+                )
                 normal_mode_data = NormalModeData(
                     equilibrium_coords=eq_coords,
-                    mode_vectors=orbital_data.normal_modes,
-                    frequencies=orbital_data.mode_frequencies,
+                    mode_vectors=vib_modes,
+                    frequencies=vib_freqs,
                 )
             if orbital_data.n_mos > 0:
                 isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
@@ -1510,10 +1673,13 @@ def run():
             molecule = hess_data.molecule
             if hess_data.normal_modes is not None:
                 eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])
+                vib_modes, vib_freqs = _filter_rigid_body_modes(
+                    hess_data.normal_modes, hess_data.frequencies
+                )
                 normal_mode_data = NormalModeData(
                     equilibrium_coords=eq_coords,
-                    mode_vectors=hess_data.normal_modes,
-                    frequencies=hess_data.frequencies,
+                    mode_vectors=vib_modes,
+                    frequencies=vib_freqs,
                 )
         elif filetype == "xyz":
             traj = parse_xyz_trajectory(filepath)

@@ -408,6 +408,7 @@ class TestParseCIF:
         assert mol.bond_shifts is not None
         assert len(mol.bonds) == 6
         assert len(mol.bond_shifts) == 6
+        assert (0, 0, 0) in mol.bond_shifts
         lengths = [dist for _, _, dist in mol.get_bond_lengths()]
         assert lengths == pytest.approx([1.4203] * 6, abs=1e-4)
 

@@ -34,6 +34,27 @@ def _write_graphite_cif(tmp_path: Path) -> Path:
     return path
 
 
+def _write_graphite_extxyz(tmp_path: Path) -> Path:
+    path = tmp_path / "graphite.extxyz"
+    path.write_text(
+        "\n".join(
+            [
+                "4",
+                (
+                    'Lattice="2.46 0.0 0.0 -1.23 2.13042249 0.0 0.0 0.0 6.71" '
+                    'Properties="species:S:1:pos:R:3"'
+                ),
+                "C 0.0 0.0 0.0",
+                "C 0.0 1.42028166 0.0",
+                "C 0.0 0.0 3.355",
+                "C 1.23 0.71014083 3.355",
+                "",
+            ]
+        )
+    )
+    return path
+
+
 def _plain_molecule():
     from moltui.elements import Atom, Molecule, get_element
 
@@ -64,14 +85,26 @@ def _periodic_h2():
 
 
 @pytest.mark.asyncio
-async def test_b_toggle_refreshes_periodic_geometry_panel(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("writer", "parser_name"),
+    [
+        (_write_graphite_cif, "parse_cif"),
+        (_write_graphite_extxyz, "parse_xyz"),
+    ],
+)
+async def test_b_toggle_refreshes_periodic_geometry_panel(
+    tmp_path: Path,
+    writer,
+    parser_name: str,
+) -> None:
     _install_skimage_stub()
 
     from moltui.app import MoltuiApp
-    from moltui.parsers import parse_cif
+    from moltui.parsers import parse_cif, parse_xyz
 
-    path = _write_graphite_cif(tmp_path)
-    app = MoltuiApp(molecule=parse_cif(path), filepath=str(path))
+    parser = {"parse_cif": parse_cif, "parse_xyz": parse_xyz}[parser_name]
+    path = writer(tmp_path)
+    app = MoltuiApp(molecule=parser(path), filepath=str(path))
 
     async with app.run_test() as pilot:
         await pilot.pause()

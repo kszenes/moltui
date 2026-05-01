@@ -1,10 +1,16 @@
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
-from .elements import Atom, Element, Molecule, get_element, get_element_by_number
+from .elements import ELEMENTS, Atom, Element, Molecule, get_element, get_element_by_number
+
+
+class CIFParseWarning(UserWarning):
+    """Warning emitted by parse_cif for non-fatal interpretation issues."""
+
 
 BOHR_TO_ANGSTROM = 0.529177249
 
@@ -553,18 +559,53 @@ def _apply_symops(
 
 
 def _element_from_cif_label(label: str) -> str:
-    """Extract an element symbol from a CIF atom label like 'C1', 'Fe2+', 'H_a'."""
+    """Extract an element symbol from a CIF atom label like 'C1', 'Fe2+', 'ca1'.
+
+    Tries a two-letter element symbol (case-insensitive) first and falls back
+    to the single first letter, accepting both ``Ca1`` and ``ca1`` forms.
+    """
     label = label.strip()
     if not label:
         raise ValueError("Empty CIF atom label")
-    if len(label) >= 2 and label[0].isalpha() and label[1].isalpha() and label[1].islower():
-        return label[:2]
-    return label[0]
+    if len(label) >= 2 and label[0].isalpha() and label[1].isalpha():
+        candidate = label[0].upper() + label[1].lower()
+        if candidate in ELEMENTS:
+            return candidate
+    return label[0].upper()
 
 
 def _clean_cif_lines(raw_lines: list[str]) -> list[str]:
+    """Strip comments and collapse ``;``-delimited multi-line text fields.
+
+    A multi-line text block opens with a line starting with ``;`` (column 1)
+    and closes with the next such line. The whole block represents a single
+    CIF value, so we collapse it to one double-quoted token appended to the
+    preceding output line (or emitted alone if no preceding line exists).
+    """
     lines: list[str] = []
-    for line in raw_lines:
+    in_semi = False
+    semi_buf: list[str] = []
+    for raw in raw_lines:
+        line = raw.rstrip("\r\n")
+        if in_semi:
+            if line.startswith(";"):
+                content = " ".join(s.strip() for s in semi_buf if s.strip())
+                token = '"' + content.replace('"', "'") + '"'
+                if lines:
+                    lines[-1] = lines[-1] + " " + token
+                else:
+                    lines.append(token)
+                in_semi = False
+                semi_buf = []
+            else:
+                semi_buf.append(line)
+            continue
+        if line.startswith(";"):
+            in_semi = True
+            rest = line[1:]
+            if rest.strip():
+                semi_buf.append(rest)
+            continue
         stripped = line.split("#", 1)[0].rstrip()
         if stripped.strip():
             lines.append(stripped)
@@ -743,6 +784,7 @@ def parse_cif(filepath: str | Path) -> Molecule:
     frac_atoms_symbols: list[str] = []
     frac_atoms_coords: list[np.ndarray] = []
     symops: list[tuple[np.ndarray, np.ndarray]] = []
+    hm_name: str | None = _extract_hm_space_group_name(lines)
 
     i = 0
     while i < len(lines):
@@ -801,9 +843,36 @@ def parse_cif(filepath: str | Path) -> Molecule:
                 for sym, frac in zip(expanded_symbols, expanded_fracs)
             ]
 
+    if hm_name is not None and not symops and hm_name.replace(" ", "").upper() not in ("P1", "P-1"):
+        warnings.warn(
+            f"CIF declares space group {hm_name!r} but provides no symmetry "
+            "operations; structure shown is the asymmetric unit only (treated as P1).",
+            CIFParseWarning,
+            stacklevel=2,
+        )
+
     mol = Molecule(atoms=atoms, bonds=[], lattice=mol_lattice)
     mol.detect_bonds_auto()
     return mol
+
+
+def _extract_hm_space_group_name(lines: list[str]) -> str | None:
+    """Return the Hermann-Mauguin space group name from a CIF, if present."""
+    keys = (
+        "_symmetry_space_group_name_h-m",
+        "_space_group_name_h-m_alt",
+        "_space_group_name_h-m",
+    )
+    for line in lines:
+        stripped = line.strip()
+        lower = stripped.lower()
+        for key in keys:
+            if lower.startswith(key):
+                tokens = _split_cif_tokens(stripped)
+                if len(tokens) >= 2:
+                    return _strip_cif_value(" ".join(tokens[1:]))
+                return None
+    return None
 
 
 def parse_cube(filepath: str | Path) -> Molecule:

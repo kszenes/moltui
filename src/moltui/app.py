@@ -1755,6 +1755,19 @@ def run():
             molecule, orbital_data, isosurfaces, current_mo, trexio_toast = (
                 _prepare_trexio_cli_session(filepath)
             )
+        elif filetype == "cif":
+            import warnings as _warnings
+
+            from .parsers import CIFParseWarning, parse_cif
+
+            with _warnings.catch_warnings(record=True) as caught:
+                _warnings.simplefilter("always", CIFParseWarning)
+                molecule = parse_cif(filepath)
+            cif_warnings = [
+                str(w.message) for w in caught if issubclass(w.category, CIFParseWarning)
+            ]
+            if cif_warnings:
+                trexio_toast = "; ".join(cif_warnings)
         else:
             molecule = load_molecule(filepath)
 
@@ -1768,7 +1781,7 @@ def run():
             normal_mode_data=normal_mode_data,
         )
         app._cube_data = cube_data_for_app
-        if filetype == "trexio":
+        if filetype in ("trexio", "cif"):
             app._startup_toast = trexio_toast
         app.run()
     except ValueError as exc:

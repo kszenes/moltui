@@ -479,6 +479,151 @@ class TestParseCIF:
         mol = load_molecule(path)
         assert len(mol.atoms) == 4
 
+    def test_semicolon_multiline_text_field(self, tmp_path: Path):
+        """Semicolon-delimited text blocks (publication CIF) must not corrupt parsing."""
+        path = tmp_path / "multiline.cif"
+        path.write_text(
+            "data_x\n"
+            "_publ_section_title\n"
+            ";\n"
+            "  A multi-line title that\n"
+            "  spans several lines.\n"
+            ";\n"
+            "_cell_length_a 5.6\n"
+            "_cell_length_b 5.6\n"
+            "_cell_length_c 5.6\n"
+            "_cell_angle_alpha 90\n"
+            "_cell_angle_beta 90\n"
+            "_cell_angle_gamma 90\n"
+            "loop_\n"
+            "_atom_site_label\n"
+            "_atom_site_type_symbol\n"
+            "_atom_site_fract_x\n"
+            "_atom_site_fract_y\n"
+            "_atom_site_fract_z\n"
+            "C1 C 0.0 0.0 0.0\n"
+        )
+        mol = parse_cif(path)
+        assert len(mol.atoms) == 1
+        assert mol.atoms[0].element.symbol == "C"
+
+    def test_lowercase_atom_label_two_letter_element(self, tmp_path: Path):
+        """A lowercase label like 'ca1' (no _atom_site_type_symbol) must resolve to Ca."""
+        path = tmp_path / "ca.cif"
+        path.write_text(
+            "data_ca\n"
+            "_cell_length_a 5.0\n"
+            "_cell_length_b 5.0\n"
+            "_cell_length_c 5.0\n"
+            "_cell_angle_alpha 90\n"
+            "_cell_angle_beta 90\n"
+            "_cell_angle_gamma 90\n"
+            "loop_\n"
+            "_atom_site_label\n"
+            "_atom_site_fract_x\n"
+            "_atom_site_fract_y\n"
+            "_atom_site_fract_z\n"
+            "ca1 0.0 0.0 0.0\n"
+            "c1  0.5 0.5 0.5\n"
+        )
+        mol = parse_cif(path)
+        symbols = [a.element.symbol for a in mol.atoms]
+        assert symbols == ["Ca", "C"]
+
+    def test_hm_name_without_symops_warns(self, tmp_path: Path):
+        """Non-P1 H-M space group with no symop loop must emit CIFParseWarning."""
+        import warnings as _warnings
+
+        from moltui.parsers import CIFParseWarning
+
+        path = tmp_path / "hm.cif"
+        path.write_text(
+            "data_x\n"
+            "_cell_length_a 5.0\n"
+            "_cell_length_b 5.0\n"
+            "_cell_length_c 5.0\n"
+            "_cell_angle_alpha 90\n"
+            "_cell_angle_beta 90\n"
+            "_cell_angle_gamma 90\n"
+            "_symmetry_space_group_name_H-M 'P 21/c'\n"
+            "loop_\n"
+            "_atom_site_label\n"
+            "_atom_site_type_symbol\n"
+            "_atom_site_fract_x\n"
+            "_atom_site_fract_y\n"
+            "_atom_site_fract_z\n"
+            "C1 C 0.0 0.0 0.0\n"
+        )
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always", CIFParseWarning)
+            mol = parse_cif(path)
+        assert len(mol.atoms) == 1
+        cif_warns = [w for w in caught if issubclass(w.category, CIFParseWarning)]
+        assert len(cif_warns) == 1
+        assert "P 21/c" in str(cif_warns[0].message)
+
+    def test_p1_hm_name_no_warning(self, tmp_path: Path):
+        """A P1/P-1 H-M name with no symop loop must NOT warn."""
+        import warnings as _warnings
+
+        from moltui.parsers import CIFParseWarning
+
+        path = tmp_path / "p1.cif"
+        path.write_text(
+            "data_x\n"
+            "_cell_length_a 5.0\n"
+            "_cell_length_b 5.0\n"
+            "_cell_length_c 5.0\n"
+            "_cell_angle_alpha 90\n"
+            "_cell_angle_beta 90\n"
+            "_cell_angle_gamma 90\n"
+            "_symmetry_space_group_name_H-M 'P 1'\n"
+            "loop_\n"
+            "_atom_site_label\n"
+            "_atom_site_type_symbol\n"
+            "_atom_site_fract_x\n"
+            "_atom_site_fract_y\n"
+            "_atom_site_fract_z\n"
+            "C1 C 0.0 0.0 0.0\n"
+        )
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always", CIFParseWarning)
+            parse_cif(path)
+        assert not [w for w in caught if issubclass(w.category, CIFParseWarning)]
+
+    def test_hm_name_with_symops_no_warning(self, tmp_path: Path):
+        """An H-M name accompanied by a symop loop must NOT warn."""
+        import warnings as _warnings
+
+        from moltui.parsers import CIFParseWarning
+
+        path = tmp_path / "ok.cif"
+        path.write_text(
+            "data_x\n"
+            "_cell_length_a 5.0\n"
+            "_cell_length_b 5.0\n"
+            "_cell_length_c 5.0\n"
+            "_cell_angle_alpha 90\n"
+            "_cell_angle_beta 90\n"
+            "_cell_angle_gamma 90\n"
+            "_symmetry_space_group_name_H-M 'P 21/c'\n"
+            "loop_\n"
+            "_symmetry_equiv_pos_as_xyz\n"
+            "'x, y, z'\n"
+            "'-x, y+1/2, -z+1/2'\n"
+            "loop_\n"
+            "_atom_site_label\n"
+            "_atom_site_type_symbol\n"
+            "_atom_site_fract_x\n"
+            "_atom_site_fract_y\n"
+            "_atom_site_fract_z\n"
+            "C1 C 0.1 0.2 0.3\n"
+        )
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always", CIFParseWarning)
+            parse_cif(path)
+        assert not [w for w in caught if issubclass(w.category, CIFParseWarning)]
+
     def test_uncertainty_parens_stripped(self, tmp_path: Path):
         path = tmp_path / "u.cif"
         path.write_text(

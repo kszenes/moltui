@@ -577,7 +577,7 @@ class TestApplySymops:
         assert len(out_syms) == 1
         np.testing.assert_allclose(out_fracs[0], [0.0, 0.0, 0.0])
 
-    def test_p21a_caffeine_multiplicity(self):
+    def test_p21a_general_position_multiplicity(self):
         # P 21/a: 4 ops, generic site → 4 atoms.
         from moltui.parsers import _apply_symops
 
@@ -597,21 +597,20 @@ class TestApplySymops:
 
 
 class TestCifSymmetryExpansion:
-    def test_caffeine_expands_25_to_100(self):
-        path = Path(__file__).parent.parent / "data" / "crystal" / "caffeine.cif"
+    def test_aspirin_expands_21_to_84(self):
+        path = Path(__file__).parent.parent / "data" / "crystal" / "aspirin.cif"
         if not path.exists():
-            pytest.skip("caffeine.cif not present")
+            pytest.skip("aspirin.cif not present")
         mol = parse_cif(path)
-        # 25 atoms × 4 ops = 100 atoms with no special-position collapses.
-        assert len(mol.atoms) == 100
+        # 21 atoms × 4 ops = 84 atoms with no special-position collapses.
+        assert len(mol.atoms) == 84
         from collections import Counter
 
         counts = Counter(a.element.symbol for a in mol.atoms)
-        # Asymmetric unit had: 8C, 4N, 3O, 10H → ×4
-        assert counts["C"] == 32
-        assert counts["N"] == 16
-        assert counts["O"] == 12
-        assert counts["H"] == 40
+        # Asymmetric unit: 9C, 4O, 8H → ×4
+        assert counts["C"] == 36
+        assert counts["O"] == 16
+        assert counts["H"] == 32
 
     def test_graphite_identity_only_keeps_4_atoms(self, tmp_path: Path):
         path = tmp_path / "graphite.cif"
@@ -681,7 +680,7 @@ class TestCifSymmetryExpansion:
         assert len(mol.atoms) == 2
 
     def test_symop_loop_with_id_column(self, tmp_path: Path):
-        # caffeine-style: id column followed by op column.
+        # id column followed by op column (common in CCDC-exported CIFs).
         body = (
             "data_with_id\n"
             "_cell_length_a 5.0\n_cell_length_b 5.0\n_cell_length_c 5.0\n"

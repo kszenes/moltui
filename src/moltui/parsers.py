@@ -661,7 +661,15 @@ def parse_cif(filepath: str | Path) -> Molecule:
             elif cx_idx is not None and cy_idx is not None and cz_idx is not None:
                 coord_idx = (cx_idx, cy_idx, cz_idx)
             else:
-                raise ValueError("CIF atom_site loop missing coordinate columns")
+                # Auxiliary atom_site loops (e.g. _atom_site_aniso_* for
+                # displacement parameters) carry no coordinates — skip rather
+                # than treat as a fatal error.
+                while i < len(lines):
+                    s = lines[i].strip()
+                    if not s or s.lower() == "loop_" or s.startswith("_") or s.startswith("data_"):
+                        break
+                    i += 1
+                continue
 
             lattice = np.eye(3)
             if use_fractional:

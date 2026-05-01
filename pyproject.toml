@@ -36,6 +36,7 @@ all = ["moltui[trexio]"]
 dev = [
     "moltui[test-pyscf]",
     "moltui[test-trexio]",
+    "moltui[test-ase]",
 ]
 
 trexio = ["trexio>=2.0"]
@@ -53,6 +54,10 @@ test-pyscf = [
 test-trexio = [
     "moltui[test]",
     "moltui[trexio]",
+]
+test-ase = [
+    "moltui[test]",
+    "ase>=3.22",
 ]
 
 [build-system]

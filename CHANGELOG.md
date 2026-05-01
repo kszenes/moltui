@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [v0.5.0] - 2026-05-01
 
 - Add support for periodic lattices via extended XYZ and CIF formats
 

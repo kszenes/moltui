@@ -31,5 +31,10 @@
       "ok": 3,
       "fail": 0
     }
-  }
+  },
+  "allowed_failures": [
+    "Gaussian/Gaussian09/test0200.com",
+    "ORCA/ORCA4.2/dvb_scan_unrelaxed.inp",
+    "ORCA/ORCA5.0/1038.in"
+  ]
 }

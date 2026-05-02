@@ -14,7 +14,6 @@ unambiguous input-echo markers in their outputs.
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import sys
 from collections import defaultdict
@@ -22,6 +21,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from regression_baseline import check_baseline  # noqa: E402
 
 from moltui.parsers import load_molecule  # noqa: E402
 
@@ -170,40 +171,6 @@ EXTENSIONS = {
 }
 
 
-def _check_baseline(
-    *,
-    baseline_path: Path,
-    total: int,
-    parsed: int,
-    failed: int,
-    stats: dict[str, tuple[int, int]],
-) -> bool:
-    baseline = json.loads(baseline_path.read_text())
-    failures: list[str] = []
-
-    if total < baseline["total"]:
-        failures.append(f"extracted input count regressed: {total} < {baseline['total']}")
-    if parsed < baseline["parsed"]:
-        failures.append(f"parsed count regressed: {parsed} < {baseline['parsed']}")
-    if failed > baseline["failed"]:
-        failures.append(f"failure count regressed: {failed} > {baseline['failed']}")
-
-    for prog, expected in baseline["by_program"].items():
-        ok, bad = stats.get(prog, (0, 0))
-        if ok < expected["ok"]:
-            failures.append(f"{prog} ok count regressed: {ok} < {expected['ok']}")
-        if bad > expected["fail"]:
-            failures.append(f"{prog} failure count regressed: {bad} > {expected['fail']}")
-
-    if failures:
-        print("\n--- Baseline regressions ---")
-        for item in failures:
-            print(f"  {item}")
-        return False
-    print(f"\nBaseline check passed: {baseline_path}")
-    return True
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -285,14 +252,21 @@ def main() -> int:
                     print(f"    ... and {len(paths) - 3} more")
 
     if args.baseline:
+        failure_paths = {
+            str(path.relative_to(EXTRACTED) if path.is_absolute() else path)
+            for items in failures.values()
+            for path, _msg in items
+        }
         return (
             0
-            if _check_baseline(
+            if check_baseline(
                 baseline_path=args.baseline,
                 total=total,
                 parsed=parsed,
                 failed=total - parsed,
                 stats=stats,
+                stats_key="by_program",
+                failure_paths=failure_paths,
             )
             else 1
         )

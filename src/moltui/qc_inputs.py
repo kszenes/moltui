@@ -8,6 +8,11 @@ Supported formats:
 - Turbomole (`coord` file)
 - Molcas / OpenMolcas (`.input`)
 - Molpro (`.com`, `.inp`)
+- MRCC (`MINP`)
+- CFOUR (`ZMAT`)
+- Psi4 (`.dat`)
+- GAMESS (`.inp`)
+- Jaguar (`.in`)
 
 Each parser returns a `Molecule` with coordinates in Angstrom. Dispatch
 helpers (`detect_qc_input_by_extension`, `sniff_qc_input`, `parse_qc_input`)
@@ -18,19 +23,70 @@ are the single source of truth shared by `parsers.load_molecule` and
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 import numpy as np
 
-from .elements import Atom, Molecule, get_element, get_element_from_tag
+from .elements import (
+    Atom,
+    Element,
+    Molecule,
+    get_element,
+    get_element_by_number,
+    get_element_from_tag,
+)
 
 BOHR_TO_ANGSTROM = 0.529177249
+_BOHR_UNITS = {"bohr", "bohrs", "au", "a.u.", "atomic"}
+_ANGSTROM_UNITS = {"ang", "angs", "angstrom", "angstroms"}
+
+ElementResolver = Callable[[str], Element]
 
 
 def _make_molecule(atoms: list[Atom]) -> Molecule:
     mol = Molecule(atoms=atoms, bonds=[])
     mol.detect_bonds()
     return mol
+
+
+def _scale_molecule(mol: Molecule, factor: float) -> Molecule:
+    """Scale molecule coordinates in-place and rebuild bonds."""
+    if factor != 1.0:
+        for atom in mol.atoms:
+            atom.position *= factor
+        mol.bonds = []
+        mol.detect_bonds()
+    return mol
+
+
+def _unit_factor(unit: str | None, *, default_bohr: bool = False) -> float:
+    """Return coordinate factor to Angstrom for common unit spellings."""
+    if unit is None:
+        return BOHR_TO_ANGSTROM if default_bohr else 1.0
+    normalized = unit.strip().strip(",;").lower()
+    if normalized in _BOHR_UNITS:
+        return BOHR_TO_ANGSTROM
+    if normalized in _ANGSTROM_UNITS:
+        return 1.0
+    return BOHR_TO_ANGSTROM if default_bohr else 1.0
+
+
+def _bohr_factor(enabled: bool) -> float:
+    return BOHR_TO_ANGSTROM if enabled else 1.0
+
+
+def _unit_factor_from_tokens(tokens: Iterable[str], *, default_bohr: bool = False) -> float:
+    for token in tokens:
+        normalized = token.strip().strip(",;").lower()
+        if normalized in _BOHR_UNITS | _ANGSTROM_UNITS:
+            return _unit_factor(normalized, default_bohr=default_bohr)
+    return BOHR_TO_ANGSTROM if default_bohr else 1.0
+
+
+def _split_fields(line: str) -> list[str]:
+    """Split atom lines on whitespace plus comma/semicolon separators."""
+    return [p for p in re.split(r"[,;\s]+", line.strip()) if p]
 
 
 def _parse_xyz_atom_line(line: str) -> tuple[str, float, float, float] | None:
@@ -47,6 +103,143 @@ def _parse_xyz_atom_line(line: str) -> tuple[str, float, float, float] | None:
     return sym, x, y, z
 
 
+def _atom_from_fields(
+    fields: list[str],
+    *,
+    symbol_index: int = 0,
+    coord_start: int = 1,
+    factor: float = 1.0,
+    element_resolver: ElementResolver = get_element,
+) -> Atom | None:
+    if len(fields) <= max(symbol_index, coord_start + 2):
+        return None
+    try:
+        x = float(fields[coord_start]) * factor
+        y = float(fields[coord_start + 1]) * factor
+        z = float(fields[coord_start + 2]) * factor
+    except ValueError:
+        return None
+    return Atom(element=element_resolver(fields[symbol_index]), position=np.array([x, y, z]))
+
+
+def _cartesian_atoms_from_lines(
+    lines: Iterable[str],
+    *,
+    factor: float = 1.0,
+    element_resolver: ElementResolver = get_element,
+    split_fields: bool = False,
+    symbol_index: int = 0,
+    coord_start: int = 1,
+    skip_prefixes: tuple[str, ...] = (),
+    stop_prefixes: tuple[str, ...] = (),
+) -> list[Atom]:
+    atoms: list[Atom] = []
+    for raw in lines:
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        low = s.lower()
+        if stop_prefixes and low.startswith(stop_prefixes):
+            break
+        if skip_prefixes and low.startswith(skip_prefixes):
+            continue
+        fields = _split_fields(s) if split_fields else s.split()
+        atom = _atom_from_fields(
+            fields,
+            symbol_index=symbol_index,
+            coord_start=coord_start,
+            factor=factor,
+            element_resolver=element_resolver,
+        )
+        if atom is not None:
+            atoms.append(atom)
+    return atoms
+
+
+def _molecule_from_cartesian_lines(
+    lines: Iterable[str],
+    *,
+    factor: float = 1.0,
+    element_resolver: ElementResolver = get_element,
+    split_fields: bool = False,
+    symbol_index: int = 0,
+    coord_start: int = 1,
+    error: str,
+    skip_prefixes: tuple[str, ...] = (),
+    stop_prefixes: tuple[str, ...] = (),
+) -> Molecule:
+    atoms = _cartesian_atoms_from_lines(
+        lines,
+        factor=factor,
+        element_resolver=element_resolver,
+        split_fields=split_fields,
+        symbol_index=symbol_index,
+        coord_start=coord_start,
+        skip_prefixes=skip_prefixes,
+        stop_prefixes=stop_prefixes,
+    )
+    if not atoms:
+        raise ValueError(error)
+    return _make_molecule(atoms)
+
+
+def _zmat_text(geom_lines: Iterable[str], var_lines: Iterable[str] = ()) -> str:
+    text = "\n".join(geom_lines)
+    variables = list(var_lines)
+    if variables:
+        text += "\n\n" + "\n".join(variables)
+    return text
+
+
+def _parse_zmat_text_scaled(
+    geom_lines: Iterable[str],
+    var_lines: Iterable[str] = (),
+    *,
+    factor: float = 1.0,
+) -> Molecule:
+    mol = parse_zmat_text_local(_zmat_text(geom_lines, var_lines))
+    return _scale_molecule(mol, factor)
+
+
+def _split_inline_zmat_variables(lines: Iterable[str]) -> tuple[list[str], list[str]]:
+    geom_lines: list[str] = []
+    var_lines: list[str] = []
+    for line in lines:
+        if "=" in line:
+            var_lines.append(line)
+        else:
+            geom_lines.append(line)
+    return geom_lines, var_lines
+
+
+def _split_blank_sections(text: str) -> list[list[str]]:
+    sections = re.split(r"\n[ \t]*\n", text.strip())
+    return [
+        [line.strip() for line in section.splitlines() if line.strip()]
+        for section in sections
+        if section.strip()
+    ]
+
+
+def _is_charge_multiplicity_line(line: str) -> bool:
+    parts = line.replace(",", " ").split()
+    if len(parts) < 2:
+        return False
+    try:
+        int(parts[0])
+        int(parts[1])
+    except ValueError:
+        return False
+    return True
+
+
+def _element_from_symbol_or_number(token: str) -> Element:
+    try:
+        return get_element_by_number(int(token))
+    except ValueError:
+        return get_element(token)
+
+
 def parse_turbomole_coord(filepath: str | Path) -> Molecule:
     """Parse a Turbomole `coord` file.
 
@@ -55,36 +248,25 @@ def parse_turbomole_coord(filepath: str | Path) -> Molecule:
     text = Path(filepath).read_text()
     factor = BOHR_TO_ANGSTROM
     in_block = False
-    atoms: list[Atom] = []
+    block_lines: list[str] = []
     for raw in text.splitlines():
         s = raw.strip()
         if not in_block:
             low = s.lower()
             if low == "$coord" or low.startswith("$coord "):
                 in_block = True
-                if "angs" in low:
-                    factor = 1.0
-                elif "bohr" in low:
-                    factor = BOHR_TO_ANGSTROM
+                factor = _unit_factor_from_tokens(low.split()[1:], default_bohr=True)
             continue
         if s.startswith("$"):
             break
-        if not s or s.startswith("#"):
-            continue
-        parts = s.split()
-        if len(parts) < 4:
-            continue
-        try:
-            x = float(parts[0]) * factor
-            y = float(parts[1]) * factor
-            z = float(parts[2]) * factor
-        except ValueError:
-            continue
-        sym = parts[3]
-        atoms.append(Atom(element=get_element(sym), position=np.array([x, y, z])))
-    if not atoms:
-        raise ValueError(f"Turbomole coord: no atoms found in {filepath!s}")
-    return _make_molecule(atoms)
+        block_lines.append(s)
+    return _molecule_from_cartesian_lines(
+        block_lines,
+        factor=factor,
+        symbol_index=3,
+        coord_start=0,
+        error=f"Turbomole coord: no atoms found in {filepath!s}",
+    )
 
 
 def parse_orca_input(filepath: str | Path) -> Molecule:
@@ -115,7 +297,7 @@ def parse_orca_input(filepath: str | Path) -> Molecule:
         raise ValueError("Orca input: `%coords ... end` block-form geometry is not supported")
 
     bohr = bool(re.search(r"(?mi)^\s*!.*\bbohrs?\b", text))
-    factor = BOHR_TO_ANGSTROM if bohr else 1.0
+    factor = _bohr_factor(bohr)
 
     mode = "xyz"
     in_block = False
@@ -156,27 +338,14 @@ def parse_orca_input(filepath: str | Path) -> Molecule:
         raise ValueError(f"Orca input: empty geometry block in {filepath!s}")
 
     if mode == "xyz":
-        atoms: list[Atom] = []
-        for s in block_lines:
-            parsed = _parse_xyz_atom_line(s)
-            if parsed is None:
-                continue
-            sym, x, y, z = parsed
-            atoms.append(Atom(element=get_element(sym), position=np.array([x, y, z]) * factor))
-        if not atoms:
-            raise ValueError(f"Orca input: no atoms found in {filepath!s}")
-        return _make_molecule(atoms)
+        return _molecule_from_cartesian_lines(
+            block_lines,
+            factor=factor,
+            error=f"Orca input: no atoms found in {filepath!s}",
+        )
 
     if mode == "gzmt":
-        from .parsers import parse_zmat_text
-
-        mol = parse_zmat_text("\n".join(block_lines))
-        if factor != 1.0:
-            for atom in mol.atoms:
-                atom.position *= factor
-            mol.bonds = []
-            mol.detect_bonds()
-        return mol
+        return _parse_zmat_text_scaled(block_lines, factor=factor)
 
     # mode == "int": Orca 7-field-per-line Z-matrix.
     from .parsers import _zmat_to_cartesian
@@ -215,8 +384,9 @@ def parse_orca_input(filepath: str | Path) -> Molecule:
             values.append((dist, angle, dih))
 
     positions = _zmat_to_cartesian(symbols, refs, values)
-    atoms = [Atom(element=get_element(sym), position=pos) for sym, pos in zip(symbols, positions)]
-    return _make_molecule(atoms)
+    return _make_molecule(
+        [Atom(element=get_element(sym), position=pos) for sym, pos in zip(symbols, positions)]
+    )
 
 
 def parse_qchem_input(filepath: str | Path) -> Molecule:
@@ -235,7 +405,7 @@ def parse_qchem_input(filepath: str | Path) -> Molecule:
             text,
         )
     )
-    factor = BOHR_TO_ANGSTROM if bohr else 1.0
+    factor = _bohr_factor(bohr)
 
     block_lines: list[str] = []
     in_block = False
@@ -263,26 +433,16 @@ def parse_qchem_input(filepath: str | Path) -> Molecule:
     if not block_lines:
         raise ValueError(f"Q-Chem input: empty `$molecule` block in {filepath!s}")
 
-    atoms: list[Atom] = []
-    for s in block_lines:
-        parsed = _parse_xyz_atom_line(s)
-        if parsed is None:
-            continue
-        sym, x, y, z = parsed
-        atoms.append(Atom(element=get_element(sym), position=np.array([x, y, z]) * factor))
+    atoms = _cartesian_atoms_from_lines(block_lines, factor=factor)
     if atoms:
         return _make_molecule(atoms)
 
     # Z-matrix fallback. Q-Chem allows `name = value` variable definitions
     # inside `$molecule` after the Z-matrix lines; split them out so
     # `parse_zmat_text` sees the canonical "geometry, blank line, vars" shape.
-    geom_lines = [l for l in block_lines if "=" not in l]
-    var_lines = [l for l in block_lines if "=" in l]
-    zmat_text = "\n".join(geom_lines)
-    if var_lines:
-        zmat_text += "\n\n" + "\n".join(var_lines)
+    geom_lines, var_lines = _split_inline_zmat_variables(block_lines)
     try:
-        return parse_zmat_text_local(zmat_text)
+        return _parse_zmat_text_scaled(geom_lines, var_lines)
     except Exception as exc:
         raise ValueError(
             f"Q-Chem input: no Cartesian atoms found in {filepath!s}; "
@@ -313,7 +473,7 @@ def parse_gaussian_input(filepath: str | Path) -> Molecule:
         i += 1
     route = " ".join(lines[route_start:i])
     bohr = bool(re.search(r"(?i)\bunits?\s*=\s*(?:bohr|au)\b", route))
-    factor = BOHR_TO_ANGSTROM if bohr else 1.0
+    factor = _bohr_factor(bohr)
     while i < n and not lines[i].strip():
         i += 1
     while i < n and lines[i].strip():
@@ -323,42 +483,33 @@ def parse_gaussian_input(filepath: str | Path) -> Molecule:
     if i >= n:
         raise ValueError(f"Gaussian input: charge/multiplicity not found in {filepath!s}")
 
-    cm = [p for p in re.split(r"[,\s]+", lines[i].strip()) if p]
-    try:
-        int(cm[0])
-        int(cm[1])
-    except (ValueError, IndexError) as exc:
-        raise ValueError(f"Gaussian input: invalid charge/multiplicity line: {lines[i]!r}") from exc
+    if not _is_charge_multiplicity_line(lines[i]):
+        raise ValueError(f"Gaussian input: invalid charge/multiplicity line: {lines[i]!r}")
     i += 1
 
     geom_start = i
     atoms: list[Atom] = []
     while i < n and lines[i].strip():
-        parts = [p for p in re.split(r"[,\s]+", lines[i].strip()) if p]
-        sym = parts[0]
+        parts = _split_fields(lines[i])
         # "Sym x y z" or "Sym 0 x y z" (frozen flag) or "Sym(label) x y z"
-        coords: list[str] | None = None
+        coord_start: int | None = None
         if len(parts) >= 5:
             try:
                 int(parts[1])
-                coords = parts[2:5]
+                coord_start = 2
             except ValueError:
-                coords = parts[1:4]
+                coord_start = 1
         elif len(parts) >= 4:
-            coords = parts[1:4]
-        if coords is not None:
-            try:
-                x = float(coords[0])
-                y = float(coords[1])
-                z = float(coords[2])
-                atoms.append(
-                    Atom(
-                        element=get_element(sym),
-                        position=np.array([x, y, z]) * factor,
-                    )
-                )
-            except ValueError:
-                pass
+            coord_start = 1
+        if coord_start is not None:
+            atom = _atom_from_fields(
+                parts,
+                symbol_index=0,
+                coord_start=coord_start,
+                factor=factor,
+            )
+            if atom is not None:
+                atoms.append(atom)
         i += 1
 
     if atoms:
@@ -381,13 +532,13 @@ def parse_gaussian_input(filepath: str | Path) -> Molecule:
         while k < n and lines[k].strip():
             var_block.append(lines[k])
             k += 1
-        zmat_text = "\n".join(geom_lines)
         if var_block:
             # Convert Gaussian's `name value` form to `name=value` if needed.
             vars_norm = [(re.sub(r"^(\S+)\s+(\S+)\s*$", r"\1=\2", l)) for l in var_block]
-            zmat_text += "\n\n" + "\n".join(vars_norm)
+        else:
+            vars_norm = []
         try:
-            return parse_zmat_text_local(zmat_text)
+            return _parse_zmat_text_scaled(geom_lines, vars_norm)
         except Exception as exc:
             raise ValueError(
                 f"Gaussian input: no Cartesian atoms found in {filepath!s}; "
@@ -428,7 +579,7 @@ def parse_nwchem_input(filepath: str | Path) -> Molecule:
     text = Path(filepath).read_text()
     in_geom = False
     factor = 1.0
-    atoms: list[Atom] = []
+    block_lines: list[str] = []
     for raw in text.splitlines():
         s = raw.strip()
         low = s.lower()
@@ -442,23 +593,14 @@ def parse_nwchem_input(filepath: str | Path) -> Molecule:
             continue
         if low == "end":
             break
-        if not s or s.startswith("#"):
-            continue
-        if low.startswith(_NWCHEM_GEOM_DIRECTIVES):
-            continue
-        parsed = _parse_xyz_atom_line(s)
-        if parsed is None:
-            continue
-        tag, x, y, z = parsed
-        atoms.append(
-            Atom(
-                element=get_element_from_tag(tag),
-                position=np.array([x, y, z]) * factor,
-            )
-        )
-    if not atoms:
-        raise ValueError(f"NWChem input: no atoms found in {filepath!s}")
-    return _make_molecule(atoms)
+        block_lines.append(s)
+    return _molecule_from_cartesian_lines(
+        block_lines,
+        factor=factor,
+        element_resolver=get_element_from_tag,
+        skip_prefixes=_NWCHEM_GEOM_DIRECTIVES,
+        error=f"NWChem input: no atoms found in {filepath!s}",
+    )
 
 
 _MOLCAS_BOHR_TOKENS = ("bohr", "a.u.", "au", "atomic")
@@ -526,17 +668,16 @@ def parse_molcas_input(filepath: str | Path) -> Molecule:
                 )
         comment_bohr = any(tok in next_tokens for tok in _MOLCAS_BOHR_TOKENS)
         has_comment = comment_bohr or _parse_xyz_atom_line(next_line) is None
-        factor = BOHR_TO_ANGSTROM if (bohr_global or comment_bohr) else 1.0
+        factor = _bohr_factor(bohr_global or comment_bohr)
         j += 2 if has_comment else 1
         if j + natoms > n:
             raise ValueError(f"Molcas input: inline Coord block truncated (need {natoms} atoms)")
         atoms: list[Atom] = []
         for kk in range(natoms):
-            parsed = _parse_xyz_atom_line(lines[j + kk])
-            if parsed is None:
+            atom = _atom_from_fields(lines[j + kk].split(), factor=factor)
+            if atom is None:
                 raise ValueError(f"Molcas input: malformed atom line: {lines[j + kk]!r}")
-            sym, x, y, z = parsed
-            atoms.append(Atom(element=get_element(sym), position=np.array([x, y, z]) * factor))
+            atoms.append(atom)
         return _make_molecule(atoms)
     raise ValueError(f"Molcas input: no Coord directive found in {filepath!s}")
 
@@ -595,7 +736,7 @@ def parse_molpro_input(filepath: str | Path) -> Molecule:
                 re.MULTILINE | re.IGNORECASE,
             )
         )
-        first_parts = [p for p in re.split(r"[,;\s]+", non_blank[0].lower()) if p]
+        first_parts = _split_fields(non_blank[0].lower())
         first = first_parts[0] if first_parts else ""
         if first in ("angstrom", "angstroms"):
             atom_lines = non_blank[1:]
@@ -607,20 +748,7 @@ def parse_molpro_input(filepath: str | Path) -> Molecule:
             atom_lines = non_blank
             factor = 1.0 if global_angstrom else BOHR_TO_ANGSTROM
 
-    atoms: list[Atom] = []
-    for line in atom_lines:
-        parts = [p for p in re.split(r"[,;\s]+", line) if p]
-        if len(parts) < 4:
-            continue
-        sym = parts[0]
-        try:
-            x = float(parts[1]) * factor
-            y = float(parts[2]) * factor
-            z = float(parts[3]) * factor
-        except ValueError:
-            continue
-        atoms.append(Atom(element=get_element(sym), position=np.array([x, y, z])))
-
+    atoms = _cartesian_atoms_from_lines(atom_lines, factor=factor, split_fields=True)
     if atoms:
         return _make_molecule(atoms)
 
@@ -693,7 +821,7 @@ def _parse_molpro_zmatrix(
     refs: list[tuple[int, ...]] = []
     values: list[tuple[float, ...]] = []
     for i, line in enumerate(atom_lines):
-        parts = [p for p in re.split(r"[,;\s]+", line) if p]
+        parts = _split_fields(line)
         if not parts:
             continue
         label = parts[0]
@@ -812,7 +940,7 @@ def _mrcc_parse_xyz_body(body: str, bohr: bool, filepath: Path) -> Molecule:
         ) from exc
     # Skip the count and one comment line, then take natoms atom lines
     start = non_blank_idx[0] + 2
-    factor = BOHR_TO_ANGSTROM if bohr else 1.0
+    factor = _bohr_factor(bohr)
     atoms: list[Atom] = []
     for k in range(natoms):
         if start + k >= len(lines):
@@ -823,48 +951,28 @@ def _mrcc_parse_xyz_body(body: str, bohr: bool, filepath: Path) -> Molecule:
         parts = line.split()
         if len(parts) < 4:
             raise ValueError(f"MRCC xyz: malformed atom line {line!r}")
-        # First column may be element symbol or atomic number
-        sym = parts[0]
-        try:
-            z = int(sym)
-            from .elements import get_element_by_number
-
-            elem = get_element_by_number(z)
-        except ValueError:
-            elem = get_element(sym)
-        try:
-            x = float(parts[1]) * factor
-            y = float(parts[2]) * factor
-            z3 = float(parts[3]) * factor
-        except ValueError as exc:
-            raise ValueError(f"MRCC xyz: bad coords on line {line!r}") from exc
-        atoms.append(Atom(element=elem, position=np.array([x, y, z3])))
+        atom = _atom_from_fields(
+            parts,
+            factor=factor,
+            element_resolver=_element_from_symbol_or_number,
+        )
+        if atom is None:
+            raise ValueError(f"MRCC xyz: bad coords on line {line!r}")
+        atoms.append(atom)
     return _make_molecule(atoms)
 
 
 def _mrcc_parse_tmol_body(body: str, bohr: bool) -> Molecule:
     """Parse `geom=tmol` body: Turbomole-style `x y z element` lines."""
-    factor = BOHR_TO_ANGSTROM if bohr else 1.0
-    atoms: list[Atom] = []
-    for raw in body.splitlines():
-        s = raw.strip()
-        if not s or s.startswith("#"):
-            continue
-        if s.startswith("$"):
-            break
-        parts = s.split()
-        if len(parts) < 4:
-            continue
-        try:
-            x = float(parts[0]) * factor
-            y = float(parts[1]) * factor
-            z = float(parts[2]) * factor
-        except ValueError:
-            continue
-        atoms.append(Atom(element=get_element(parts[3]), position=np.array([x, y, z])))
-    if not atoms:
-        raise ValueError("MRCC tmol: no atoms parsed")
-    return _make_molecule(atoms)
+    factor = _bohr_factor(bohr)
+    return _molecule_from_cartesian_lines(
+        body.splitlines(),
+        factor=factor,
+        symbol_index=3,
+        coord_start=0,
+        stop_prefixes=("$",),
+        error="MRCC tmol: no atoms parsed",
+    )
 
 
 def _mrcc_parse_zmat_body(body: str) -> Molecule:
@@ -896,19 +1004,17 @@ def parse_cfour_input(filepath: str | Path) -> Molecule:
     if closing == -1:
         raise ValueError("CFOUR input: unterminated `*CFOUR(...)` block")
     cfour_kv: dict[str, str] = {}
-    for token in re.split(r"[,\s]+", text[cfour_match.end() : closing].strip()):
+    for token in _split_fields(text[cfour_match.end() : closing]):
         if "=" in token:
             k, v = token.split("=", 1)
             cfour_kv[k.strip().lower()] = v.strip().lower()
     coord_mode = cfour_kv.get("coordinates") or cfour_kv.get("coord", "internal")
     units = cfour_kv.get("units", "angstrom")
-    factor = BOHR_TO_ANGSTROM if units in ("bohr", "au", "a.u.", "atomic") else 1.0
+    factor = _unit_factor(units)
 
     pre = text[: cfour_match.start()]
     # Split on blank lines: section 0 = title + geometry, section 1 = variables.
-    sections = re.split(r"\n[ \t]*\n", pre)
-    section_lines = [[l for l in section.splitlines() if l.strip()] for section in sections]
-    section_lines = [s for s in section_lines if s]
+    section_lines = _split_blank_sections(pre)
     if not section_lines:
         raise ValueError(f"CFOUR input: empty geometry section in {filepath!s}")
     geom_lines = section_lines[0][1:]  # skip title
@@ -917,35 +1023,14 @@ def parse_cfour_input(filepath: str | Path) -> Molecule:
         raise ValueError(f"CFOUR input: empty geometry block in {filepath!s}")
 
     if coord_mode in ("cartesian", "cart"):
-        atoms: list[Atom] = []
-        for line in geom_lines:
-            parts = line.split()
-            if len(parts) < 4:
-                continue
-            try:
-                x = float(parts[1]) * factor
-                y = float(parts[2]) * factor
-                z = float(parts[3]) * factor
-            except ValueError:
-                continue
-            atoms.append(Atom(element=get_element(parts[0]), position=np.array([x, y, z])))
-        if not atoms:
-            raise ValueError("CFOUR input: no Cartesian atoms parsed")
-        return _make_molecule(atoms)
+        return _molecule_from_cartesian_lines(
+            geom_lines,
+            factor=factor,
+            error="CFOUR input: no Cartesian atoms parsed",
+        )
 
     # Z-matrix mode (default).
-    zmat_text = "\n".join(geom_lines)
-    if var_lines:
-        zmat_text += "\n\n" + "\n".join(var_lines)
-    from .parsers import parse_zmat_text
-
-    mol = parse_zmat_text(zmat_text)
-    if factor != 1.0:
-        for atom in mol.atoms:
-            atom.position *= factor
-        mol.bonds = []
-        mol.detect_bonds()
-    return mol
+    return _parse_zmat_text_scaled(geom_lines, var_lines, factor=factor)
 
 
 _PSI4_MOLECULE_RE = re.compile(r"\bmolecule(?:\s+\w+)?\s*\{", re.IGNORECASE)
@@ -958,6 +1043,15 @@ _PSI4_DIRECTIVES = (
     "pubchem",
 )
 _PSI4_GHOST_RE = re.compile(r"^[Gg][Hh]\((.+)\)$")
+
+
+def _psi4_element_from_tag(sym_raw: str) -> Element:
+    ghost = _PSI4_GHOST_RE.match(sym_raw)
+    if ghost:
+        sym_raw = ghost.group(1)
+    if "@" in sym_raw:
+        sym_raw = sym_raw.split("@", 1)[0]
+    return get_element(sym_raw)
 
 
 def parse_psi4_input(filepath: str | Path) -> Molecule:
@@ -1006,44 +1100,21 @@ def parse_psi4_input(filepath: str | Path) -> Molecule:
         if "=" in s:
             var_lines.append(s)
             continue
-        parts = s.split()
-        if len(parts) == 2:
-            try:
-                int(parts[0])
-                int(parts[1])
-                continue  # charge/multiplicity line
-            except ValueError:
-                pass
+        if _is_charge_multiplicity_line(s):
+            continue
         atom_or_zmat_lines.append(s)
 
-    atoms: list[Atom] = []
-    for s in atom_or_zmat_lines:
-        parts = s.split()
-        if len(parts) < 4:
-            continue
-        sym_raw = parts[0]
-        ghost = _PSI4_GHOST_RE.match(sym_raw)
-        if ghost:
-            sym_raw = ghost.group(1)
-        if "@" in sym_raw:
-            sym_raw = sym_raw.split("@", 1)[0]
-        try:
-            x = float(parts[1]) * factor
-            y = float(parts[2]) * factor
-            z = float(parts[3]) * factor
-        except ValueError:
-            continue
-        atoms.append(Atom(element=get_element(sym_raw), position=np.array([x, y, z])))
-
+    atoms = _cartesian_atoms_from_lines(
+        atom_or_zmat_lines,
+        factor=factor,
+        element_resolver=_psi4_element_from_tag,
+    )
     if atoms:
         return _make_molecule(atoms)
 
     # Z-matrix fallback: standard `name=value` substitution.
-    zmat_text = "\n".join(atom_or_zmat_lines)
-    if var_lines:
-        zmat_text += "\n\n" + "\n".join(var_lines)
     try:
-        return parse_zmat_text_local(zmat_text)
+        return _parse_zmat_text_scaled(atom_or_zmat_lines, var_lines)
     except KeyError as exc:
         missing = str(exc.args[0]) if exc.args else "unknown"
         raise ValueError(
@@ -1073,8 +1144,6 @@ def parse_gamess_input(filepath: str | Path) -> Molecule:
     Non-`C1` symmetry inputs (which require additional master-frame cards)
     raise an error rather than silently mis-parse.
     """
-    from .elements import get_element_by_number
-
     filepath = Path(filepath)
     text = filepath.read_text()
 
@@ -1089,7 +1158,7 @@ def parse_gamess_input(filepath: str | Path) -> Molecule:
 
     units_match = _GAMESS_UNITS_RE.search(text)
     bohr = bool(units_match and units_match.group(1).lower() in ("bohr", "au", "a.u.", "atomic"))
-    factor = BOHR_TO_ANGSTROM if bohr else 1.0
+    factor = _bohr_factor(bohr)
 
     lines = block.splitlines()
     idx = 0
@@ -1169,16 +1238,13 @@ def parse_jaguar_input(filepath: str | Path) -> Molecule:
         parts = s.split()
         if len(parts) < 4:
             continue
-        try:
-            x = float(parts[1]) * factor
-            y = float(parts[2]) * factor
-            z = float(parts[3]) * factor
-        except ValueError as exc:
+        atom = _atom_from_fields(parts, factor=factor)
+        if atom is None:
             raise ValueError(
                 f"Jaguar input: non-numeric coords on line {s!r} — "
                 f"Z-matrix-with-variables is not supported (Cartesian only)"
-            ) from exc
-        atoms.append(Atom(element=get_element(parts[0]), position=np.array([x, y, z])))
+            )
+        atoms.append(atom)
 
     if not atoms:
         raise ValueError(f"Jaguar input: no atoms parsed from {filepath!s}")

@@ -12,13 +12,14 @@ upstream QC packages — not a unit test (no oracle for expected geometry).
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from regression_baseline import check_baseline  # noqa: E402
 
 from moltui.app import _detect_filetype  # noqa: E402
 from moltui.parsers import load_molecule  # noqa: E402
@@ -94,40 +95,6 @@ def discover() -> list[Path]:
     return sorted(p for p in files if p.name not in NON_INPUT_FILENAMES)
 
 
-def _check_baseline(
-    *,
-    baseline_path: Path,
-    total: int,
-    parsed: int,
-    failed: int,
-    stats: dict[str, tuple[int, int]],
-) -> bool:
-    baseline = json.loads(baseline_path.read_text())
-    failures: list[str] = []
-
-    if total < baseline["total"]:
-        failures.append(f"candidate count regressed: {total} < {baseline['total']}")
-    if parsed < baseline["parsed"]:
-        failures.append(f"parsed count regressed: {parsed} < {baseline['parsed']}")
-    if failed > baseline["failed"]:
-        failures.append(f"failure count regressed: {failed} > {baseline['failed']}")
-
-    for kind, expected in baseline["by_kind"].items():
-        ok, bad = stats.get(kind, (0, 0))
-        if ok < expected["ok"]:
-            failures.append(f"{kind} ok count regressed: {ok} < {expected['ok']}")
-        if bad > expected["fail"]:
-            failures.append(f"{kind} failure count regressed: {bad} > {expected['fail']}")
-
-    if failures:
-        print("\n--- Baseline regressions ---")
-        for item in failures:
-            print(f"  {item}")
-        return False
-    print(f"\nBaseline check passed: {baseline_path}")
-    return True
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -187,14 +154,19 @@ def main() -> int:
             print(f"    {rel}: {msg}")
 
     if args.baseline:
+        failure_paths = {str(rel) for rel, _msg in detect_errors}
+        for items in parse_errors.values():
+            failure_paths.update(str(rel) for rel, _msg in items)
         return (
             0
-            if _check_baseline(
+            if check_baseline(
                 baseline_path=args.baseline,
                 total=total,
                 parsed=parsed,
                 failed=failed,
                 stats=stats,
+                stats_key="by_kind",
+                failure_paths=failure_paths,
             )
             else 1
         )

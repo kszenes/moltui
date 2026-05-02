@@ -1,0 +1,31 @@
+{
+  "total": 371,
+  "parsed": 290,
+  "failed": 81,
+  "by_program": {
+    "GAMESS": {
+      "ok": 37,
+      "fail": 67
+    },
+    "Molcas": {
+      "ok": 7,
+      "fail": 2
+    },
+    "Molpro": {
+      "ok": 9,
+      "fail": 0
+    },
+    "ORCA": {
+      "ok": 119,
+      "fail": 9
+    },
+    "Psi4": {
+      "ok": 31,
+      "fail": 1
+    },
+    "QChem": {
+      "ok": 87,
+      "fail": 2
+    }
+  }
+}

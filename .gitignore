@@ -16,3 +16,6 @@ examples/
 archive/
 
 wt/
+
+# cclib regression data
+data/regression/

@@ -1,6 +1,6 @@
 # MolTUI
 
-**MolTUI** is a terminal **molecular** and **crystallographic** viewer for the **(extended) XYZ**, **Z-matrix**, **CIF**, **Molden**, **Gaussian Cube** and **.fchk**, **Orca .gbw** and **.hess**, and **TrexIO** file formats designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
+**MolTUI** is a terminal **molecular** and **crystallographic** viewer for the **(extended) XYZ**, **Z-matrix**, **CIF**, **Molden**, **Gaussian Cube** and **.fchk**, **Orca .gbw** and **.hess**, **TrexIO**, and **QC input** (Orca, Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro) file formats designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
 Ideal for **remote SSH sessions** and **lightweight analyses**.
 
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
@@ -107,12 +107,21 @@ Toggle between **light** and **dark** mode with `i`.
 | Orca **.GBW**¹        | ✓        | ✓        | —            |
 | Orca **.hess**        | ✓        | —        | ✓            |
 | **TrexIO**²           | ✓        | ✓        | —            |
+| **Orca** input (`.inp`)        | ✓        | —        | —            |
+| **Q-Chem** input (`.in`/`.qcin`)| ✓        | —        | —            |
+| **Gaussian** input (`.com`/`.gjf`) | ✓     | —        | —            |
+| **NWChem** input (`.nw`/`.nwi`)| ✓        | —        | —            |
+| **Turbomole** (`coord`)        | ✓        | —        | —            |
+| **Molcas** input (`.input`)    | ✓        | —        | —            |
+| **Molpro** input (`.com`/`.inp`)| ✓        | —        | —            |
 
 ✓ supported; — not part of the file format
 
 ¹ Requires `orca_2mkl` in `PATH`
 
 ² Requires installing `moltui[trexio]`
+
+QC input parsing is **geometry-only**; ambiguous extensions (`.com`/`.inp`/`.in`/`.input`) are disambiguated by content sniffing.
 
 ## Keybindings
 
@@ -182,3 +191,7 @@ Toggle between **light** and **dark** mode with `i`.
 - Only up to `g`-shells are implemented as this is the highest orbital shell officially supported by the Molden format.
 - The content is rendered using braille Unicode characters and, therefore, the quality of rendering can depend on the font and terminal emulator. All figures in the repository have been generated using the JetBrains Mono Nerd Font in the Kitty terminal. 
 - The Orca GBW file format is typically incompatible between versions. Therefore, the `orca_2mkl` should ideally be of the same version as the Orca version used to produce the GBW file. Newer version of Orca can try to recover earlier GBW files using the [rescue](https://orca-manual.mpi-muelheim.mpg.de/contents/quickstartguide/troubleshooting.html#using-old-orca-inputs) feature. 
+
+## Acknowledgements
+
+Parser regression tests use example files from [cclib-data](https://github.com/cclib/cclib-data), the regression data repository for [cclib](https://github.com/cclib/cclib).

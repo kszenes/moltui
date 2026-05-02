@@ -1,0 +1,35 @@
+{
+  "total": 68,
+  "parsed": 65,
+  "failed": 3,
+  "by_kind": {
+    "cube": {
+      "ok": 2,
+      "fail": 0
+    },
+    "fchk": {
+      "ok": 8,
+      "fail": 0
+    },
+    "gaussian-input": {
+      "ok": 8,
+      "fail": 1
+    },
+    "orca-input": {
+      "ok": 37,
+      "fail": 2
+    },
+    "qchem-input": {
+      "ok": 2,
+      "fail": 0
+    },
+    "turbomole-input": {
+      "ok": 5,
+      "fail": 0
+    },
+    "xyz": {
+      "ok": 3,
+      "fail": 0
+    }
+  }
+}

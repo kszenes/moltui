@@ -1,23 +1,24 @@
 """Geometry-only parsers and dispatch for QC input files.
 
-Supported formats:
-- Orca (`.inp`)
-- Q-Chem (`.in`, `.qcin`)
-- Gaussian (`.com`, `.gjf`)
-- NWChem (`.nw`, `.nwi`)
-- Turbomole (`coord` file)
-- Molcas / OpenMolcas (`.input`)
-- Molpro (`.com`, `.inp`)
-- MRCC (`MINP`)
-- CFOUR (`ZMAT`)
-- Psi4 (`.dat`)
-- GAMESS (`.inp`)
-- Jaguar (`.in`)
+Supported input syntaxes:
+- Orca
+- Q-Chem
+- Gaussian
+- NWChem
+- Turbomole `coord`
+- Molcas / OpenMolcas
+- Molpro
+- MRCC `MINP`
+- CFOUR `ZMAT`
+- Psi4
+- GAMESS
+- Jaguar
 
 Each parser returns a `Molecule` with coordinates in Angstrom. Dispatch
 helpers (`detect_qc_input_by_extension`, `sniff_qc_input`, `parse_qc_input`)
 are the single source of truth shared by `parsers.load_molecule` and
-`app._detect_filetype`.
+`app._detect_filetype`. Ambiguous filenames/extensions are identified by
+content sniffing, not extension alone.
 """
 
 from __future__ import annotations

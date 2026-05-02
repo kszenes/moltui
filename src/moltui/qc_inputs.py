@@ -108,23 +108,11 @@ def parse_orca_input(filepath: str | Path) -> Molecule:
     text = filepath.read_text()
 
     if re.search(r"(?mi)^\s*%compound\b", text):
-        raise ValueError(
-            f"Orca input: `%compound` scripts are not supported "
-            f"(found in {filepath!s}). These run multiple jobs with "
-            f"conditional logic and have no single geometry to extract."
-        )
+        raise ValueError("Orca input: `%compound` scripts are not supported")
     if re.search(r"(?mi)^\s*%paras\b", text):
-        raise ValueError(
-            f"Orca input: `%paras` parameter block is not supported "
-            f"(found in {filepath!s}). The geometry uses `{{name}}` "
-            f"substitutions whose values are defined in `%paras`."
-        )
+        raise ValueError("Orca input: `%paras` parameter blocks are not supported")
     if re.search(r"(?mi)^\s*%coords\b", text):
-        raise ValueError(
-            f"Orca input: `%coords ... end` block-form geometry is not "
-            f"supported (found in {filepath!s}). Use the `* xyz/int/gzmt "
-            f"... *` block form instead."
-        )
+        raise ValueError("Orca input: `%coords ... end` block-form geometry is not supported")
 
     bohr = bool(re.search(r"(?mi)^\s*!.*\bbohrs?\b", text))
     factor = BOHR_TO_ANGSTROM if bohr else 1.0
@@ -151,7 +139,7 @@ def parse_orca_input(filepath: str | Path) -> Molecule:
             if "gzmt" in tokens_low:
                 mode = "gzmt"
                 in_block = True
-            elif "int" in tokens_low:
+            elif "int" in tokens_low or "internal" in tokens_low:
                 mode = "int"
                 in_block = True
             elif "xyz" in tokens_low:
@@ -234,10 +222,13 @@ def parse_orca_input(filepath: str | Path) -> Molecule:
 def parse_qchem_input(filepath: str | Path) -> Molecule:
     """Parse the `$molecule ... $end` block of a Q-Chem input file.
 
-    A `$rem` block setting `INPUT_BOHR  true` (or `1`/`yes`) switches the
-    `$molecule` coordinates from Angstrom to atomic units.
+    Supports Cartesian coordinates and Z-matrix-with-variables (the same
+    `name=value` substitution form Gaussian Z-matrices use). A `$rem` block
+    setting `INPUT_BOHR  true` (or `1`/`yes`) switches Cartesian coordinates
+    from Angstrom to atomic units.
     """
-    text = Path(filepath).read_text()
+    filepath = Path(filepath)
+    text = filepath.read_text()
     bohr = bool(
         re.search(
             r"(?mi)^\s*input_bohr\s+(?:true|1|yes|t)\b",
@@ -245,9 +236,10 @@ def parse_qchem_input(filepath: str | Path) -> Molecule:
         )
     )
     factor = BOHR_TO_ANGSTROM if bohr else 1.0
+
+    block_lines: list[str] = []
     in_block = False
     seen_header = False
-    atoms: list[Atom] = []
     for raw in text.splitlines():
         s = raw.strip()
         low = s.lower()
@@ -262,20 +254,40 @@ def parse_qchem_input(filepath: str | Path) -> Molecule:
             continue
         if not seen_header:
             seen_header = True
-            if low == "read":
-                raise ValueError(
-                    "Q-Chem '$molecule\\nread\\n$end' external geometry is not supported."
-                )
+            if low == "read" or low.startswith("read "):
+                raise ValueError("Q-Chem input: `read` is not supported")
             # Charge / multiplicity line — skip.
             continue
+        block_lines.append(s)
+
+    if not block_lines:
+        raise ValueError(f"Q-Chem input: empty `$molecule` block in {filepath!s}")
+
+    atoms: list[Atom] = []
+    for s in block_lines:
         parsed = _parse_xyz_atom_line(s)
         if parsed is None:
             continue
         sym, x, y, z = parsed
         atoms.append(Atom(element=get_element(sym), position=np.array([x, y, z]) * factor))
-    if not atoms:
-        raise ValueError(f"Q-Chem input: no atoms found in {filepath!s}")
-    return _make_molecule(atoms)
+    if atoms:
+        return _make_molecule(atoms)
+
+    # Z-matrix fallback. Q-Chem allows `name = value` variable definitions
+    # inside `$molecule` after the Z-matrix lines; split them out so
+    # `parse_zmat_text` sees the canonical "geometry, blank line, vars" shape.
+    geom_lines = [l for l in block_lines if "=" not in l]
+    var_lines = [l for l in block_lines if "=" in l]
+    zmat_text = "\n".join(geom_lines)
+    if var_lines:
+        zmat_text += "\n\n" + "\n".join(var_lines)
+    try:
+        return parse_zmat_text_local(zmat_text)
+    except Exception as exc:
+        raise ValueError(
+            f"Q-Chem input: no Cartesian atoms found in {filepath!s}; "
+            f"Z-matrix fallback failed: {exc}"
+        ) from exc
 
 
 def parse_gaussian_input(filepath: str | Path) -> Molecule:
@@ -287,10 +299,7 @@ def parse_gaussian_input(filepath: str | Path) -> Molecule:
     """
     text = Path(filepath).read_text()
     if re.search(r"(?mi)^\s*--\s*Link1\s*--\s*$", text):
-        raise ValueError(
-            f"Gaussian input: multi-job inputs separated by `--Link1--` "
-            f"are not supported (found in {filepath!s})."
-        )
+        raise ValueError("Gaussian input: multi-job `--Link1--` inputs are not supported")
     lines = text.splitlines()
     n = len(lines)
     i = 0
@@ -503,20 +512,22 @@ def parse_molcas_input(filepath: str | Path) -> Molecule:
             natoms = int(lines[j].strip())
         except ValueError:
             continue
-        comment_line = lines[j + 1] if j + 1 < n else ""
-        # Tokenize on anything that isn't a letter or `.` (so `(bohr)` → `bohr`,
-        # `a.u.` survives intact, and `TRANS,1.0` splits cleanly).
-        comment_tokens = re.findall(r"[a-z.]+", comment_line.lower())
+        # Standard XYZ has count + comment + atoms, but Molcas inline blocks
+        # sometimes omit the comment line entirely. First check the line
+        # after the count for transform/unit tokens (those mean it IS a
+        # comment line); otherwise decide based on whether it looks like
+        # an atom line.
+        next_line = lines[j + 1] if j + 1 < n else ""
+        next_tokens = re.findall(r"[a-z.]+", next_line.lower())
         for tok in _MOLCAS_UNSUPPORTED_TRANSFORMS:
-            if tok in comment_tokens:
+            if tok in next_tokens:
                 raise ValueError(
-                    f"Molcas input: geometry-transform token "
-                    f"{tok.upper()!r} in inline xyz comment line is not supported "
-                    f"(comment: {comment_line.strip()!r})"
+                    f"Molcas input: `{tok.upper()}` geometry-transform tokens are not supported"
                 )
-        comment_bohr = any(tok in comment_tokens for tok in _MOLCAS_BOHR_TOKENS)
+        comment_bohr = any(tok in next_tokens for tok in _MOLCAS_BOHR_TOKENS)
+        has_comment = comment_bohr or _parse_xyz_atom_line(next_line) is None
         factor = BOHR_TO_ANGSTROM if (bohr_global or comment_bohr) else 1.0
-        j += 2  # skip count and comment line
+        j += 2 if has_comment else 1
         if j + natoms > n:
             raise ValueError(f"Molcas input: inline Coord block truncated (need {natoms} atoms)")
         atoms: list[Atom] = []
@@ -579,10 +590,13 @@ def parse_molpro_input(filepath: str | Path) -> Molecule:
         # is set globally, or appears as the first token in the block.
         global_angstrom = bool(
             re.search(
-                r"^[ \t]*angstrom[ \t]*$", text[: match.start()], re.MULTILINE | re.IGNORECASE
+                r"^[ \t]*angstroms?[ \t;]*$",
+                text[: match.start()],
+                re.MULTILINE | re.IGNORECASE,
             )
         )
-        first = non_blank[0].lower()
+        first_parts = [p for p in re.split(r"[,;\s]+", non_blank[0].lower()) if p]
+        first = first_parts[0] if first_parts else ""
         if first in ("angstrom", "angstroms"):
             atom_lines = non_blank[1:]
             factor = 1.0
@@ -607,9 +621,131 @@ def parse_molpro_input(filepath: str | Path) -> Molecule:
             continue
         atoms.append(Atom(element=get_element(sym), position=np.array([x, y, z])))
 
-    if not atoms:
-        raise ValueError(f"Molpro input: no atoms parsed from {filepath!s}")
-    return _make_molecule(atoms)
+    if atoms:
+        return _make_molecule(atoms)
+
+    # Z-matrix fallback. Molpro supports numeric and label atom references;
+    # variables are defined elsewhere in the file as `name=value [unit]` lines.
+    return _parse_molpro_zmatrix(atom_lines, text, match.start(), filepath, factor)
+
+
+_MOLPRO_VARIABLE_RE = re.compile(
+    r"(?mi)^\s*([A-Za-z_]\w*)\s*=\s*([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\b"
+)
+
+
+def _parse_molpro_zmatrix(
+    atom_lines: list[str],
+    full_text: str,
+    geom_block_start: int,
+    filepath: str | Path,
+    factor: float,
+) -> Molecule:
+    """Parse a Molpro Z-matrix.
+
+    Molpro inputs may reference atoms by 1-based index or by label. Dummy
+    centers are kept while constructing coordinates, then omitted from the
+    returned molecule.
+    """
+    from .parsers import _zmat_to_cartesian
+
+    variables: dict[str, float] = {}
+    pre = full_text[:geom_block_start]
+    block_end = full_text.find("}", geom_block_start)
+    post = full_text[block_end + 1 :] if block_end != -1 else ""
+    vars_text = pre + "\n" + post
+    for m in _MOLPRO_VARIABLE_RE.finditer(vars_text):
+        variables[m.group(1)] = float(m.group(2))
+
+    def resolve(token: str) -> float:
+        try:
+            return float(token)
+        except ValueError:
+            if token.startswith("-") and token[1:] in variables:
+                return -variables[token[1:]]
+            return variables[token]
+
+    def clean_symbol(label: str) -> str:
+        return "".join(ch for ch in label if ch.isalpha())
+
+    def is_dummy(label: str) -> bool:
+        return clean_symbol(label).lower() in {"q", "x"}
+
+    def resolve_ref(
+        token: str,
+        label_to_idx: dict[str, int],
+        max_numeric_ref: int,
+        line: str,
+    ) -> int:
+        try:
+            ref = int(token)
+        except ValueError:
+            if token in label_to_idx:
+                return label_to_idx[token] - 1
+            raise ValueError(f"Molpro Z-matrix: unknown atom label {token!r} on line {line!r}")
+        if ref <= 0 or ref > max_numeric_ref:
+            raise ValueError(f"Molpro Z-matrix: invalid atom reference {token!r} on line {line!r}")
+        return ref - 1
+
+    label_to_idx: dict[str, int] = {}
+    symbols: list[str] = []
+    dummy_flags: list[bool] = []
+    refs: list[tuple[int, ...]] = []
+    values: list[tuple[float, ...]] = []
+    for i, line in enumerate(atom_lines):
+        parts = [p for p in re.split(r"[,;\s]+", line) if p]
+        if not parts:
+            continue
+        label = parts[0]
+        label_to_idx.setdefault(label, len(label_to_idx) + 1)
+        symbols.append(clean_symbol(label))
+        dummy_flags.append(is_dummy(label))
+
+        try:
+            if i == 0:
+                refs.append(())
+                values.append(())
+            elif i == 1:
+                refs.append((resolve_ref(parts[1], label_to_idx, i, line),))
+                values.append((resolve(parts[2]) * factor,))
+            elif i == 2:
+                refs.append(
+                    (
+                        resolve_ref(parts[1], label_to_idx, i, line),
+                        resolve_ref(parts[3], label_to_idx, i, line),
+                    )
+                )
+                values.append((resolve(parts[2]) * factor, resolve(parts[4])))
+            else:
+                refs.append(
+                    (
+                        resolve_ref(parts[1], label_to_idx, i, line),
+                        resolve_ref(parts[3], label_to_idx, i, line),
+                        resolve_ref(parts[5], label_to_idx, i, line),
+                    )
+                )
+                values.append((resolve(parts[2]) * factor, resolve(parts[4]), resolve(parts[6])))
+        except (IndexError, KeyError, ValueError) as exc:
+            raise ValueError(
+                f"Molpro input: no Cartesian atoms parsed from {filepath!s}; "
+                f"Z-matrix fallback failed: {exc}"
+            ) from exc
+
+    try:
+        positions = _zmat_to_cartesian(symbols, refs, values)
+        atoms = [
+            Atom(element=get_element(sym), position=pos)
+            for sym, pos, dummy in zip(symbols, positions, dummy_flags)
+            if not dummy
+        ]
+        if not atoms:
+            raise ValueError("no non-dummy atoms parsed")
+        return _make_molecule(atoms)
+    except Exception as exc:
+        raise ValueError(
+            f"Molpro input: no Cartesian atoms parsed from {filepath!s}; "
+            f"Z-matrix fallback failed: {exc}"
+        ) from exc
 
 
 def _mrcc_keyword_value(text: str, key: str) -> str | None:
@@ -827,12 +963,13 @@ _PSI4_GHOST_RE = re.compile(r"^[Gg][Hh]\((.+)\)$")
 def parse_psi4_input(filepath: str | Path) -> Molecule:
     """Parse the first `molecule { ... }` block of a Psi4 input file.
 
-    Cartesian-only: Z-matrix variable definitions inside the block are
-    skipped silently. Units default to Angstrom; an inline `units bohr|au`
-    line switches. Fragment separators (`--`) are treated as concatenation
-    (each fragment may carry its own `charge multiplicity` line, which is
-    skipped). Ghost (`Gh(O)`) and isotope (`O@18.0`) decorations resolve
-    to the underlying element.
+    Supports Cartesian and Z-matrix-with-variables (the `name=value`
+    definitions inside the block become Z-matrix variables). Units default
+    to Angstrom; an inline `units bohr|au` line switches. Fragment
+    separators (`--`) are treated as concatenation (each fragment may
+    carry its own `charge multiplicity` line, which is skipped). Ghost
+    (`Gh(O)`) and isotope (`O@18.0`) decorations resolve to the underlying
+    element.
     """
     text = Path(filepath).read_text()
     match = _PSI4_MOLECULE_RE.search(text)
@@ -853,7 +990,8 @@ def parse_psi4_input(filepath: str | Path) -> Molecule:
                 factor = BOHR_TO_ANGSTROM
             break
 
-    atoms: list[Atom] = []
+    atom_or_zmat_lines: list[str] = []
+    var_lines: list[str] = []
     for raw in body.splitlines():
         s = raw.strip()
         if not s or s.startswith("#"):
@@ -866,7 +1004,7 @@ def parse_psi4_input(filepath: str | Path) -> Molecule:
         if low.startswith(_PSI4_DIRECTIVES):
             continue
         if "=" in s:
-            # Z-matrix variable definition — skip.
+            var_lines.append(s)
             continue
         parts = s.split()
         if len(parts) == 2:
@@ -876,6 +1014,11 @@ def parse_psi4_input(filepath: str | Path) -> Molecule:
                 continue  # charge/multiplicity line
             except ValueError:
                 pass
+        atom_or_zmat_lines.append(s)
+
+    atoms: list[Atom] = []
+    for s in atom_or_zmat_lines:
+        parts = s.split()
         if len(parts) < 4:
             continue
         sym_raw = parts[0]
@@ -892,9 +1035,25 @@ def parse_psi4_input(filepath: str | Path) -> Molecule:
             continue
         atoms.append(Atom(element=get_element(sym_raw), position=np.array([x, y, z])))
 
-    if not atoms:
-        raise ValueError(f"Psi4 input: no atoms parsed from {filepath!s}")
-    return _make_molecule(atoms)
+    if atoms:
+        return _make_molecule(atoms)
+
+    # Z-matrix fallback: standard `name=value` substitution.
+    zmat_text = "\n".join(atom_or_zmat_lines)
+    if var_lines:
+        zmat_text += "\n\n" + "\n".join(var_lines)
+    try:
+        return parse_zmat_text_local(zmat_text)
+    except KeyError as exc:
+        missing = str(exc.args[0]) if exc.args else "unknown"
+        raise ValueError(
+            f"Psi4 input: dynamic molecule variables are not supported (unresolved {missing!r})"
+        ) from exc
+    except Exception as exc:
+        raise ValueError(
+            f"Psi4 input: no Cartesian atoms parsed from {filepath!s}; "
+            f"Z-matrix fallback failed: {exc}"
+        ) from exc
 
 
 _GAMESS_DATA_RE = re.compile(r"\$DATA\b", re.IGNORECASE)
@@ -1122,10 +1281,11 @@ def sniff_qc_input(path: Path) -> str | None:
                 return "turbomole-input"
             if low == "$molecule" or low == "$rem":
                 return "qchem-input"
-            if s.startswith("***"):
-                # Molpro title line is `***,title`/`*** title`. Reject the
-                # pure-asterisk dividers that Gaussian outputs use.
-                trailing = s.lstrip("*").lstrip()
+            if s.startswith("***") and not s.startswith("****"):
+                # Molpro title line is `***,title`/`*** title`. Reject 4+
+                # asterisk markers (Gaussian-output dividers, Orca's
+                # `****END OF INPUT****`).
+                trailing = s[3:].strip()
                 if trailing.startswith(",") or (trailing and trailing[0].isalnum()):
                     return "molpro-input"
             if low.startswith("*cfour(") or low.startswith("*aces2("):
@@ -1148,7 +1308,7 @@ def sniff_qc_input(path: Path) -> str | None:
 
             if low.startswith("memory,"):
                 bump("molpro-input")
-            elif s.startswith("! "):
+            elif s.startswith("!") and len(s) >= 2 and not s.startswith("!!"):
                 bump("orca-input")
             elif s.startswith("%") and "=" in s:
                 bump("gaussian-input")

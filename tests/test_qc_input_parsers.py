@@ -17,6 +17,7 @@ from moltui.qc_inputs import (
     parse_molpro_input,
     parse_nwchem_input,
     parse_orca_input,
+    parse_psi4_input,
     parse_qchem_input,
     parse_turbomole_coord,
     sniff_qc_input,
@@ -223,6 +224,35 @@ def test_qchem_input_detected(tmp_path: Path):
     p = tmp_path / "water.qcin"
     p.write_text(QCHEM_INPUT)
     assert _detect_filetype(str(p)) == "qchem-input"
+
+
+def test_qchem_zmatrix_with_variables(tmp_path: Path):
+    body = """$rem
+   METHOD HF
+   BASIS sto-3g
+$end
+
+$molecule
+0 1
+O
+H 1 R1
+H 1 R1 2 A1
+
+R1=0.957
+A1=104.5
+$end
+"""
+    p = tmp_path / "water.in"
+    p.write_text(body)
+    mol = parse_qchem_input(p)
+    assert [a.element.symbol for a in mol.atoms] == ["O", "H", "H"]
+    coords = np.array([a.position for a in mol.atoms])
+    np.testing.assert_allclose(np.linalg.norm(coords[1] - coords[0]), 0.957, atol=1e-3)
+    np.testing.assert_allclose(np.linalg.norm(coords[2] - coords[0]), 0.957, atol=1e-3)
+    v1 = coords[1] - coords[0]
+    v2 = coords[2] - coords[0]
+    cos_ang = float(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2)))
+    assert abs(np.degrees(np.arccos(cos_ang)) - 104.5) < 1e-2
 
 
 def test_qchem_input_detected_from_in(tmp_path: Path):
@@ -494,6 +524,32 @@ def test_molpro_cartesian_bohr_default(tmp_path: Path):
     p = tmp_path / "water.inp"
     p.write_text(body)
     _assert_water(parse_molpro_input(p), atol=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# Psi4
+# ---------------------------------------------------------------------------
+
+
+def test_psi4_dynamic_zmatrix_variables_error(tmp_path: Path):
+    body = """Rvals = [0.9, 1.0, 1.1]
+Avals = range(102, 106, 2)
+
+molecule h2o {
+    O
+    H 1 R
+    H 1 R 2 A
+}
+
+for R in Rvals:
+    h2o.R = R
+    for A in Avals:
+        h2o.A = A
+"""
+    p = tmp_path / "scan.dat"
+    p.write_text(body)
+    with pytest.raises(ValueError, match="dynamic molecule variables are not supported"):
+        parse_psi4_input(p)
 
 
 # ---------------------------------------------------------------------------

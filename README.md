@@ -1,6 +1,6 @@
 # MolTUI
 
-**MolTUI** is a terminal **molecular** and **crystallographic** viewer for the **(extended) XYZ**, **Z-matrix**, **CIF**, **Molden**, **Gaussian Cube** and **.fchk**, **Orca .gbw** and **.hess**, **TrexIO**, and **QC input** (Orca, Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro) file formats designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
+**MolTUI** is a terminal **molecular** and **crystallographic** viewer for the **(extended) XYZ**, **Z-matrix**, **CIF**, **Molden**, **Gaussian Cube** and **.fchk**, **Orca .gbw** and **.hess**, **TrexIO**, and **QC input** (Orca, Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, Jaguar) file formats designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
 Ideal for **remote SSH sessions** and **lightweight analyses**.
 
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
@@ -114,6 +114,11 @@ Toggle between **light** and **dark** mode with `i`.
 | **Turbomole** (`coord`)        | ✓        | —        | —            |
 | **Molcas** input (`.input`)    | ✓        | —        | —            |
 | **Molpro** input (`.com`/`.inp`)| ✓        | —        | —            |
+| **MRCC** input (`MINP`)        | ✓        | —        | —            |
+| **CFOUR** input (`ZMAT`)       | ✓        | —        | —            |
+| **Psi4** input (`.dat`)        | ✓        | —        | —            |
+| **GAMESS** input (`.inp`)      | ✓        | —        | —            |
+| **Jaguar** input (`.in`)       | ✓        | —        | —            |
 
 ✓ supported; — not part of the file format
 

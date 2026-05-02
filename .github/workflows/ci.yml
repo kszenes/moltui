@@ -110,6 +110,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: cclib/cclib-data
+          ref: e0a9ff4dc93c6818a39a7227a2cb272032f48d82
           path: data/regression
           persist-credentials: false
 

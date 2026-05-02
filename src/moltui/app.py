@@ -1525,7 +1525,7 @@ def _detect_filetype(filepath: str) -> str:
         f"Unsupported file format: {filepath!s}. "
         "Supported formats: .xyz, .extxyz, .cif, .cube, .molden, .fchk, .hess, "
         ".zmat, .gbw, .h5/.hdf5/.trexio (TREXIO), and QC inputs from "
-        "Orca, Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro, MRCC, "
+        "Orca, Molcas, Q-Chem, Gaussian, NWChem, Turbomole, Molpro, MRCC, "
         "CFOUR, Psi4, GAMESS, and Jaguar."
     )
 

@@ -1,6 +1,6 @@
 # MolTUI
 
-**MolTUI** is a terminal **molecular** and **crystallographic** viewer for the **(extended) XYZ**, **Z-matrix**, **CIF**, **Molden**, **Gaussian Cube** and **.fchk**, **Orca .gbw** and **.hess**, **TrexIO**, and **QC input** (Orca, Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, Jaguar) file formats designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
+**MolTUI** is a terminal **molecular** and **crystallographic** viewer designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
 Ideal for **remote SSH sessions** and **lightweight analyses**.
 
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
@@ -107,18 +107,6 @@ Toggle between **light** and **dark** mode with `i`.
 | Orca **.GBW**¹        | ✓        | ✓        | —            |
 | Orca **.hess**        | ✓        | —        | ✓            |
 | **TrexIO**²           | ✓        | ✓        | —            |
-| **Orca** input (`.inp`)        | ✓        | —        | —            |
-| **Q-Chem** input (`.in`/`.qcin`)| ✓        | —        | —            |
-| **Gaussian** input (`.com`/`.gjf`) | ✓     | —        | —            |
-| **NWChem** input (`.nw`/`.nwi`)| ✓        | —        | —            |
-| **Turbomole** (`coord`)        | ✓        | —        | —            |
-| **Molcas** input (`.input`)    | ✓        | —        | —            |
-| **Molpro** input (`.com`/`.inp`)| ✓        | —        | —            |
-| **MRCC** input (`MINP`)        | ✓        | —        | —            |
-| **CFOUR** input (`ZMAT`)       | ✓        | —        | —            |
-| **Psi4** input (`.dat`)        | ✓        | —        | —            |
-| **GAMESS** input (`.inp`)      | ✓        | —        | —            |
-| **Jaguar** input (`.in`)       | ✓        | —        | —            |
 
 ✓ supported; — not part of the file format
 
@@ -126,7 +114,23 @@ Toggle between **light** and **dark** mode with `i`.
 
 ² Requires installing `moltui[trexio]`
 
-QC input parsing is **geometry-only**; ambiguous extensions (`.com`/`.inp`/`.in`/`.input`) are disambiguated by content sniffing.
+### Quantum Chemistry Inputs
+
+The molecular structures can be viewed from the inputs of the following programs
+
+- **Orca**
+- **Molcas**
+- **Q-Chem**
+- **Gaussian**
+- **NWChem**
+- **Turbomole**
+- **Molpro**
+- **MRCC**
+- **CFOUR**
+- **Psi4**
+- **GAMESS**
+- **Jaguar**
+
 
 ## Keybindings
 
@@ -199,4 +203,4 @@ QC input parsing is **geometry-only**; ambiguous extensions (`.com`/`.inp`/`.in`
 
 ## Acknowledgements
 
-Parser regression tests use example files from [cclib-data](https://github.com/cclib/cclib-data), the regression data repository for [cclib](https://github.com/cclib/cclib).
+Quantum chemistry input parser regression tests use example files from [cclib-data](https://github.com/cclib/cclib-data), the regression data repository for [cclib](https://github.com/cclib/cclib).

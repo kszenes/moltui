@@ -1,0 +1,13 @@
+#! N2 cc-pVDZ HF
+memory 500 mb
+
+molecule n2 {
+  0 1
+  N    0.000000   0.000000   0.000000
+  N    0.000000   0.000000   1.098000
+  units angstrom
+  symmetry c1
+}
+
+set basis cc-pvdz
+energy('scf')

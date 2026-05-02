@@ -1,0 +1,9 @@
+ title "Nitrogen cc-pvdz SCF geometry optimization"  
+ geometry    
+   n 0 0 0  
+   n 0 0 1.08  
+ end  
+ basis  
+   n library cc-pvdz  
+ end  
+ task scf optimize

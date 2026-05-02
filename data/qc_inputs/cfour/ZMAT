@@ -1,0 +1,7 @@
+Nitrogen molecule, CCSD/cc-pVDZ
+N
+N 1 R
+
+R=1.098
+
+*CFOUR(CALC=CCSD,BASIS=PVDZ)

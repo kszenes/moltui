@@ -1,0 +1,9 @@
+calc=CCSD(T)
+basis=cc-pVDZ
+mem=2GB
+
+geom=xyz
+2
+N2 cc-pVDZ
+N    0.000000   0.000000   0.000000
+N    0.000000   0.000000   1.098000

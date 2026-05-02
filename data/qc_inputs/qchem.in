@@ -1,0 +1,13 @@
+! Q-Chem N2 single-point calculation
+
+$molecule
+0 1
+N    0.000000   0.000000   0.000000
+N    0.000000   0.000000   1.098000
+$end
+
+$rem
+   JOBTYPE        sp
+   METHOD         hf
+   BASIS          cc-pvdz
+$end

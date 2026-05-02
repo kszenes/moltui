@@ -138,6 +138,27 @@ def get_element_by_number(atomic_number: int) -> Element:
     return DEFAULT_ELEMENT
 
 
+def get_element_from_tag(tag: str) -> Element:
+    """Resolve an element from a labeled atom tag (e.g. NWChem `geometry` tags).
+
+    Tries the longest valid element-symbol prefix: first 2 letters
+    (canonical-cased), then the first letter. Returns `DEFAULT_ELEMENT` if
+    neither matches a known element.
+
+    Examples: `'Heavy1'` → He, `'Oxy1'` → O, `'Cl_a'` → Cl, `'C(Iso=13)'` → C.
+    """
+    alpha = "".join(c for c in tag if c.isalpha())
+    if len(alpha) >= 2:
+        two = alpha[0].upper() + alpha[1].lower()
+        if two in ELEMENTS:
+            return ELEMENTS[two]
+    if alpha:
+        one = alpha[0].upper()
+        if one in ELEMENTS:
+            return ELEMENTS[one]
+    return DEFAULT_ELEMENT
+
+
 @dataclass
 class Atom:
     element: Element

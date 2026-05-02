@@ -97,3 +97,36 @@ jobs:
 
       - name: Run TREXIO-related tests
         run: uv run pytest tests/test_trexio_parser.py tests/test_filetype.py tests/test_app_trexio_mo.py
+
+  cclib-regression:
+    name: cclib-data parser regression (Python 3.11)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check out cclib-data
+        uses: actions/checkout@v4
+        with:
+          repository: cclib/cclib-data
+          ref: e0a9ff4dc93c6818a39a7227a2cb272032f48d82
+          path: data/regression
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install project and test dependencies
+        run: uv sync --extra test
+
+      - name: Run direct cclib-data parser regression
+        run: uv run python scripts/cclib_regression_check.py --baseline scripts/cclib_regression_baseline.json
+
+      - name: Extract echoed inputs and run parser regression
+        run: uv run python scripts/extract_and_check_inputs.py --baseline scripts/extracted_inputs_baseline.json

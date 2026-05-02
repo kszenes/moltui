@@ -898,7 +898,17 @@ def parse_zmat(filepath: str | Path) -> Molecule:
     filepath = Path(filepath)
     with open(filepath) as f:
         text = f.read()
+    return parse_zmat_text(text)
 
+
+def parse_zmat_text(text: str) -> Molecule:
+    """Parse Z-matrix content (geometry + optional variables) into a Molecule.
+
+    Sections (geometry, variables) are separated by blank lines. Atoms beyond
+    the third reference earlier atoms by 1-based line index; values may be
+    inline floats or named variables defined after a blank line as
+    `name = value`.
+    """
     # Split into atom lines and optional variables section
     sections = text.strip().split("\n\n")
     atom_lines = [l.strip() for l in sections[0].strip().splitlines() if l.strip()]
@@ -999,11 +1009,28 @@ def load_molecule(filepath: str | Path) -> Molecule:
             "Use: moltui <file.gbw>"
         )
     else:
+        from .qc_inputs import (
+            QC_INPUT_AMBIGUOUS_SUFFIXES,
+            detect_qc_input_by_extension,
+            parse_qc_input,
+            sniff_qc_input,
+        )
+
+        qc_kind = detect_qc_input_by_extension(filepath)
+        if qc_kind is not None:
+            return parse_qc_input(filepath, qc_kind)
+        if suffix in QC_INPUT_AMBIGUOUS_SUFFIXES or suffix == "":
+            sniffed = sniff_qc_input(filepath)
+            if sniffed is not None:
+                return parse_qc_input(filepath, sniffed)
+            raise ValueError(f"Could not identify QC input format from contents of {filepath!s}")
         from .trexio_support import is_trexio_path, load_molecule_from_trexio
 
         if is_trexio_path(filepath):
             return load_molecule_from_trexio(filepath)
         raise ValueError(
-            f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, .hess, .cif, .gbw, "
+            f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, "
+            ".hess, .cif, .gbw, a QC input (Orca, Q-Chem, Gaussian, NWChem, "
+            "Turbomole, Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, or Jaguar), "
             "or TREXIO (.h5, .hdf5, .trexio; install optional extra: trexio)"
         )

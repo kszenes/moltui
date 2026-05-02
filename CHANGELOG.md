@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.5.1] 2025-05-02
+
+- Add geometry-only parsing for QC input files from Orca, Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, and Jaguar (as suggested by [scohenjanes5](https://github.com/scohenjanes5) in [#9](https://github.com/kszenes/moltui/issues/9) and implemented for Gaussian in [#15](https://github.com/kszenes/moltui/pull/15))
+
 ## [v0.5.0] - 2026-05-01
 
 - Add support for periodic lattices via extended XYZ and CIF formats

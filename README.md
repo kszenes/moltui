@@ -96,17 +96,17 @@ Toggle between **light** and **dark** mode with `i`.
 
 ## Supported formats
 
-| Format                | Geometry | Orbitals | Normal Modes |
-|-----------------------|:--------:|:--------:|:------------:|
-| **XYZ** / **extXYZ**  | ✓        | —        | —            |
-| **CIF**               | ✓        | —        | —            |
-| Gaussian **ZMAT**     | ✓        | —        | —            |
-| Gaussian **Cube**     | ✓        | ✓        | —            |
-| **Molden**            | ✓        | ✓        | ✓            |
-| Gaussian **.fchk**    | ✓        | ✓        | ✓            |
-| Orca **.GBW**¹        | ✓        | ✓        | —            |
-| Orca **.hess**        | ✓        | —        | ✓            |
-| **TrexIO**²           | ✓        | ✓        | —            |
+| Format                | Geometry | Trajectory | Orbitals | Normal Modes |
+|-----------------------|:--------:|:----------:|:--------:|:------------:|
+| **XYZ** / **extXYZ**  | ✓        | ✓          | —        | —            |
+| **CIF**               | ✓        | —          | —        | —            |
+| Gaussian **ZMAT**     | ✓        | —          | —        | —            |
+| Gaussian **Cube**     | ✓        | —          | ✓        | —            |
+| **Molden**            | ✓        | —          | ✓        | ✓            |
+| Gaussian **.fchk**    | ✓        | ✓          | ✓        | ✓            |
+| Orca **.GBW**¹        | ✓        | —          | ✓        | —            |
+| Orca **.hess**        | ✓        | —          | —        | ✓            |
+| **TrexIO**²           | ✓        | —          | ✓        | —            |
 
 ✓ supported; — not part of the file format
 
@@ -203,4 +203,4 @@ The molecular structures can be viewed from the inputs of the following programs
 
 ## Acknowledgements
 
-Quantum chemistry input parser regression tests use example files from [cclib-data](https://github.com/cclib/cclib-data), the regression data repository for [cclib](https://github.com/cclib/cclib).
+Parser tests are cross-validated with data and reference parsers from [IODATA](https://github.com/theochem/iodata), [cclib](https://github.com/cclib/cclib) / [cclib-data](https://github.com/cclib/cclib-data), [PySCF](https://github.com/pyscf/pyscf), and [ASE](https://gitlab.com/ase/ase).

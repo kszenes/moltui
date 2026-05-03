@@ -17,7 +17,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from moltui.gto import eval_gto, prepare_gto_cache
+from moltui.gto import (
+    component_permutation,
+    eval_gto,
+    gaussian_cartesian_component_labels,
+    molden_cartesian_component_labels,
+    prepare_gto_cache,
+    pure_spherical_component_labels,
+)
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "gaussian"
 
@@ -48,6 +55,211 @@ def _sample_points(coords_bohr: np.ndarray, n: int = 24, seed: int = 0) -> np.nd
 @pytest.fixture(scope="module")
 def fchk_module():
     return pytest.importorskip("moltui.fchk")
+
+
+def _fchk_scalar(label: str, type_code: str, value: int | float) -> str:
+    if type_code == "I":
+        return f"{label:<40}   {type_code}   {value:12d}\n"
+    return f"{label:<40}   {type_code}   {value:16.8E}\n"
+
+
+def _fchk_array(label: str, type_code: str, values: list[int] | np.ndarray) -> str:
+    arr = np.asarray(values)
+    lines = [f"{label:<40}   {type_code}   N={arr.size:12d}\n"]
+    per_line = 6 if type_code == "I" else 5
+    for start in range(0, arr.size, per_line):
+        chunk = arr[start : start + per_line]
+        if type_code == "I":
+            lines.append("".join(f"{int(v):12d}" for v in chunk) + "\n")
+        else:
+            lines.append("".join(f"{float(v):16.8E}" for v in chunk) + "\n")
+    return "".join(lines)
+
+
+def _shell_nbasis(shell_type: int) -> int:
+    l = abs(shell_type)
+    return 2 * l + 1 if shell_type < 0 else (l + 1) * (l + 2) // 2
+
+
+def _write_minimal_shell_fchk(
+    path: Path,
+    *,
+    shell_type: int,
+    n_alpha: int = 0,
+    n_beta: int = 0,
+    include_pure_flags: bool = False,
+    mo_coefficients: np.ndarray | None = None,
+) -> None:
+    """Write a tiny one-atom fchk with a single shell."""
+    nbasis = _shell_nbasis(shell_type)
+    nmo = nbasis
+    if mo_coefficients is None:
+        mo_coefficients = np.eye(nbasis)
+    # fchk stores MO-major coefficients; tests pass coefficients in AO-major
+    # shape (nbasis, nmo), matching the parser's post-reshape layout.
+    mo_coeff = mo_coefficients.T.reshape(-1)
+    text = "test\nSP HF/STO-3G\n"
+    text += _fchk_scalar("Number of atoms", "I", 1)
+    text += _fchk_scalar("Number of alpha electrons", "I", n_alpha)
+    text += _fchk_scalar("Number of beta electrons", "I", n_beta)
+    text += _fchk_scalar("Number of basis functions", "I", nbasis)
+    if include_pure_flags:
+        text += _fchk_scalar("Pure/Cartesian d shells", "I", 0 if shell_type < 0 else 1)
+        text += _fchk_scalar("Pure/Cartesian f shells", "I", 0)
+    text += _fchk_array("Atomic numbers", "I", [8])
+    text += _fchk_array("Current cartesian coordinates", "R", [0.0, 0.0, 0.0])
+    text += _fchk_array("Shell types", "I", [shell_type])
+    text += _fchk_array("Number of primitives per shell", "I", [1])
+    text += _fchk_array("Shell to atom map", "I", [1])
+    text += _fchk_array("Primitive exponents", "R", [1.0])
+    text += _fchk_array("Contraction coefficients", "R", [1.0])
+    text += _fchk_array("Alpha Orbital Energies", "R", np.arange(nmo, dtype=float))
+    text += _fchk_array("Alpha MO coefficients", "R", mo_coeff)
+    path.write_text(text)
+
+
+@pytest.mark.parametrize(("shell_type", "expected_spherical"), [(-2, True), (2, False)])
+def test_missing_pure_cartesian_flags_are_inferred_from_shell_types(
+    tmp_path: Path, fchk_module, shell_type: int, expected_spherical: bool
+) -> None:
+    path = tmp_path / "missing-pure-flags.fchk"
+    _write_minimal_shell_fchk(path, shell_type=shell_type)
+
+    basis = fchk_module.parse_fchk(path)
+
+    assert basis.spherical[2] is expected_spherical
+    assert basis.mo_coefficients.shape[0] == (5 if expected_spherical else 6)
+
+
+def test_restricted_open_shell_occupations_are_doubly_then_singly_occupied(
+    tmp_path: Path, fchk_module
+) -> None:
+    path = tmp_path / "rohf.fchk"
+    _write_minimal_shell_fchk(path, shell_type=-2, n_alpha=5, n_beta=4, include_pure_flags=True)
+
+    basis = fchk_module.parse_fchk(path)
+
+    np.testing.assert_array_equal(basis.mo_occupations, [2.0, 2.0, 2.0, 2.0, 1.0])
+
+
+def test_cartesian_component_labels_match_iodata_fchk_convention() -> None:
+    assert gaussian_cartesian_component_labels(4) == [
+        "zzzz",
+        "yzzz",
+        "yyzz",
+        "yyyz",
+        "yyyy",
+        "xzzz",
+        "xyzz",
+        "xyyz",
+        "xyyy",
+        "xxzz",
+        "xxyz",
+        "xxyy",
+        "xxxz",
+        "xxxy",
+        "xxxx",
+    ]
+    assert gaussian_cartesian_component_labels(5)[:6] == [
+        "zzzzz",
+        "yzzzz",
+        "yyzzz",
+        "yyyzz",
+        "yyyyz",
+        "yyyyy",
+    ]
+    assert len(gaussian_cartesian_component_labels(9)) == 55
+    assert pure_spherical_component_labels(9) == [
+        "c0",
+        "c1",
+        "s1",
+        "c2",
+        "s2",
+        "c3",
+        "s3",
+        "c4",
+        "s4",
+        "c5",
+        "s5",
+        "c6",
+        "s6",
+        "c7",
+        "s7",
+        "c8",
+        "s8",
+        "c9",
+        "s9",
+    ]
+
+
+def test_fchk_cartesian_g_coefficients_are_reordered_to_moltui_convention(
+    tmp_path: Path, fchk_module
+) -> None:
+    path = tmp_path / "cartesian-g.fchk"
+    fchk_labels = gaussian_cartesian_component_labels(4)
+    moltui_labels = molden_cartesian_component_labels(4)
+    coeff = np.eye(len(fchk_labels))
+    _write_minimal_shell_fchk(path, shell_type=4, include_pure_flags=True, mo_coefficients=coeff)
+
+    basis = fchk_module.parse_fchk(path)
+
+    expected_rows = component_permutation(fchk_labels, moltui_labels)
+    np.testing.assert_array_equal(basis.mo_coefficients, coeff[expected_rows, :])
+
+
+def _write_minimal_trajectory_fchk(
+    path: Path, *, prefix: str = "Opt point", counts: list[int] | None = None
+) -> np.ndarray:
+    if counts is None:
+        counts = [2, 1]
+    z = [1, 8]
+    frames_bohr = []
+    text = "trajectory\nFOpt HF/STO-3G\n"
+    text += _fchk_scalar("Number of atoms", "I", len(z))
+    text += _fchk_array("Atomic numbers", "I", z)
+    for frame_idx in range(sum(counts)):
+        frames_bohr.append(
+            np.array(
+                [
+                    [float(frame_idx), 0.0, 0.0],
+                    [float(frame_idx), 0.0, 1.0],
+                ]
+            )
+        )
+    text += _fchk_array("Current cartesian coordinates", "R", frames_bohr[-1].reshape(-1))
+    count_label = (
+        "IRC Number of geometries" if prefix == "IRC point" else "Optimization Number of geometries"
+    )
+    text += _fchk_array(count_label, "I", counts)
+    offset = 0
+    for point_idx, n_frames in enumerate(counts, start=1):
+        point_frames = np.array(frames_bohr[offset : offset + n_frames])
+        text += _fchk_array(f"{prefix} {point_idx:7d} Geometries", "R", point_frames.reshape(-1))
+        offset += n_frames
+    path.write_text(text)
+    return np.array(frames_bohr)
+
+
+@pytest.mark.parametrize("prefix", ["Opt point", "IRC point"])
+def test_fchk_trajectory_parser_flattens_point_geometries(
+    tmp_path: Path, fchk_module, prefix: str
+) -> None:
+    path = tmp_path / "trajectory.fchk"
+    frames_bohr = _write_minimal_trajectory_fchk(path, prefix=prefix)
+
+    trajectory = fchk_module.parse_fchk_trajectory(path)
+
+    assert trajectory.frames.shape == (3, 2, 3)
+    np.testing.assert_allclose(trajectory.frames, frames_bohr * 0.529177249)
+    np.testing.assert_allclose(trajectory.molecule.atoms[0].position, trajectory.frames[0, 0])
+
+
+def test_fchk_trajectory_parser_reports_missing_trajectory(tmp_path: Path, fchk_module) -> None:
+    path = tmp_path / "not-trajectory.fchk"
+    _write_minimal_shell_fchk(path, shell_type=0)
+
+    with pytest.raises(ValueError, match="does not contain"):
+        fchk_module.parse_fchk_trajectory(path)
 
 
 @pytest.mark.parametrize("stem", PAIRS)

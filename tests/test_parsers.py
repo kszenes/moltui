@@ -147,6 +147,17 @@ class TestParseXYZ:
             assert atom.position.shape == (3,)
             assert atom.position.dtype == np.float64
 
+    def test_parse_xyz_uses_first_frame_when_frame_sizes_differ(self, tmp_path: Path):
+        xyz = _write_xyz(
+            tmp_path,
+            "dataset.xyz",
+            "3\nwater\nO 0 0 0\nH 0 0 1\nH 0 1 0\n1\nnitrogen\nN 2 2 2\n",
+        )
+
+        mol = parse_xyz(xyz)
+
+        assert [atom.element.symbol for atom in mol.atoms] == ["O", "H", "H"]
+
 
 class TestParseXYZTrajectory:
     def test_parses_multiple_frames(self, tmp_path: Path):

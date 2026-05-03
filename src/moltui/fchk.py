@@ -16,8 +16,16 @@ from pathlib import Path
 import numpy as np
 
 from .elements import Atom, Molecule, get_element, get_element_by_number
-from .gto import BOHR_TO_ANGSTROM, GtoBasis, PrimShell
+from .gto import (
+    BOHR_TO_ANGSTROM,
+    GtoBasis,
+    PrimShell,
+    component_permutation,
+    gaussian_cartesian_component_labels,
+    molden_cartesian_component_labels,
+)
 from .molden import OrbitalData
+from .parsers import XYZTrajectory
 
 
 @dataclass
@@ -108,23 +116,115 @@ def _require_scalar(sections: dict[str, _Section], label: str) -> int | float:
     return sec.scalar
 
 
-def parse_fchk_atoms(filepath: str | Path) -> Molecule:
-    """Read just the geometry from a Gaussian fchk file."""
-    sections = _read_sections(Path(filepath))
-    z = _require_array(sections, "Atomic numbers").astype(int)
-    coords_bohr = _require_array(sections, "Current cartesian coordinates").reshape(-1, 3)
-    if coords_bohr.shape[0] != z.shape[0]:
-        raise ValueError("fchk atom count and coordinate count disagree")
+def _optional_scalar(sections: dict[str, _Section], label: str) -> int | float | None:
+    sec = sections.get(label)
+    if sec is None or sec.scalar is None:
+        return None
+    assert isinstance(sec.scalar, (int, float))
+    return sec.scalar
+
+
+def _molecule_from_atomic_numbers_and_coords(
+    z: np.ndarray, coords_angstrom: np.ndarray
+) -> Molecule:
     atoms = [
         Atom(
             element=get_element_by_number(int(z[i])),
-            position=coords_bohr[i] * BOHR_TO_ANGSTROM,
+            position=coords_angstrom[i],
         )
         for i in range(z.shape[0])
     ]
     mol = Molecule(atoms=atoms, bonds=[])
     mol.detect_bonds()
     return mol
+
+
+def parse_fchk_atoms(filepath: str | Path) -> Molecule:
+    """Read just the current geometry from a Gaussian fchk file."""
+    sections = _read_sections(Path(filepath))
+    z = _require_array(sections, "Atomic numbers").astype(int)
+    coords_bohr = _require_array(sections, "Current cartesian coordinates").reshape(-1, 3)
+    if coords_bohr.shape[0] != z.shape[0]:
+        raise ValueError("fchk atom count and coordinate count disagree")
+    return _molecule_from_atomic_numbers_and_coords(z, coords_bohr * BOHR_TO_ANGSTROM)
+
+
+def _fchk_trajectory_prefix_and_counts(
+    sections: dict[str, _Section],
+) -> tuple[str, np.ndarray] | None:
+    irc_sec = sections.get("IRC Number of geometries")
+    if irc_sec is not None and irc_sec.array is not None:
+        return "IRC point", irc_sec.array.astype(int)
+
+    opt_sec = sections.get("Optimization Number of geometries")
+    if opt_sec is not None and opt_sec.array is not None:
+        return "Opt point", opt_sec.array.astype(int)
+
+    return None
+
+
+def parse_fchk_trajectory(filepath: str | Path) -> XYZTrajectory:
+    """Read optimization/scan/IRC geometries from a Gaussian fchk file.
+
+    Gaussian stores trajectory geometries grouped by optimization/IRC "points".
+    MolTUI presents them as one flattened sequence in file order. Coordinates are
+    converted from Bohr to Å, matching :func:`parse_xyz_trajectory`.
+    """
+    sections = _read_sections(Path(filepath))
+    z = _require_array(sections, "Atomic numbers").astype(int)
+    n_atoms = z.shape[0]
+
+    prefix_counts = _fchk_trajectory_prefix_and_counts(sections)
+    if prefix_counts is None:
+        raise ValueError("fchk file does not contain an optimization/IRC trajectory")
+    prefix, n_geometries_per_point = prefix_counts
+
+    frames_bohr: list[np.ndarray] = []
+    for point_idx, _expected_count in enumerate(n_geometries_per_point, start=1):
+        label = f"{prefix} {point_idx:7d} Geometries"
+        sec = sections.get(label)
+        if sec is None or sec.array is None:
+            raise ValueError(f"fchk trajectory missing section: {label!r}")
+        if sec.array.size % (n_atoms * 3) != 0:
+            raise ValueError(f"fchk trajectory section has invalid length: {label!r}")
+        point_frames = sec.array.reshape(-1, n_atoms, 3)
+        # Gaussian/third-party writers may disagree with the count block; use
+        # the actual geometry data but make malformed sections fail above when
+        # they are not whole frames.
+        frames_bohr.extend(point_frames)
+
+    if not frames_bohr:
+        raise ValueError("fchk trajectory contains no geometries")
+
+    frames = np.stack(frames_bohr, axis=0) * BOHR_TO_ANGSTROM
+    molecule = _molecule_from_atomic_numbers_and_coords(z, frames[0])
+    return XYZTrajectory(molecule=molecule, frames=frames)
+
+
+def _fchk_to_moltui_ao_permutation(shell_types: np.ndarray) -> np.ndarray:
+    """Return row indices mapping fchk AO order to MolTUI evaluator order."""
+    perm: list[int] = []
+    offset = 0
+    for s_type_raw in shell_types:
+        s_type = int(s_type_raw)
+        if s_type == -1:
+            # Gaussian SP shells are stored as S, Px, Py, Pz. We split them into
+            # adjacent S and P shells in the same component order.
+            perm.extend(range(offset, offset + 4))
+            offset += 4
+            continue
+
+        l = abs(s_type)
+        spherical = s_type < 0 and l >= 2
+        if spherical:
+            n_ao = 2 * l + 1
+            perm.extend(range(offset, offset + n_ao))
+        else:
+            fchk_labels = gaussian_cartesian_component_labels(l)
+            moltui_labels = molden_cartesian_component_labels(l)
+            perm.extend(offset + idx for idx in component_permutation(fchk_labels, moltui_labels))
+        offset += (2 * l + 1) if spherical else (l + 1) * (l + 2) // 2
+    return np.array(perm, dtype=np.int64)
 
 
 def _build_shells(
@@ -213,12 +313,27 @@ def parse_fchk(filepath: str | Path) -> GtoBasis:
         atom_coords,
     )
 
-    # Pure vs Cartesian per angular momentum. Gaussian uses 0 → pure (spherical),
-    # nonzero → Cartesian. Default to pure when the field is absent (matches
-    # Gaussian's default for d/f when not stated).
-    pure_d = int(_require_scalar(sections, "Pure/Cartesian d shells")) == 0
-    pure_f = int(_require_scalar(sections, "Pure/Cartesian f shells")) == 0
-    spherical = {2: pure_d, 3: pure_f, 4: pure_f}
+    # Pure vs Cartesian per angular momentum. Gaussian's shell type sign is the
+    # most direct per-shell source: negative high-l shell types are pure
+    # (spherical), positive ones are Cartesian. Some fchk files omit the legacy
+    # ``Pure/Cartesian d/f shells`` scalar flags entirely, so use them only as a
+    # fallback when a given angular momentum is not present in ``Shell types``.
+    spherical: dict[int, bool] = {}
+    pure_d_flag = _optional_scalar(sections, "Pure/Cartesian d shells")
+    pure_f_flag = _optional_scalar(sections, "Pure/Cartesian f shells")
+    if pure_d_flag is not None:
+        spherical[2] = int(pure_d_flag) == 0
+    if pure_f_flag is not None:
+        pure_f = int(pure_f_flag) == 0
+        spherical[3] = pure_f
+        spherical[4] = pure_f
+    for s_type in shell_types:
+        l = abs(int(s_type))
+        if l >= 2:
+            spherical[l] = int(s_type) < 0
+    spherical.setdefault(2, True)
+    spherical.setdefault(3, True)
+    spherical.setdefault(4, True)
 
     # --- MOs -----------------------------------------------------------------
     nbasis = int(_require_scalar(sections, "Number of basis functions"))
@@ -230,12 +345,17 @@ def parse_fchk(filepath: str | Path) -> GtoBasis:
     # fchk stores MOs row-major: MO 1 (nbasis values), MO 2, ... — so reshape
     # as (nmo, nbasis) and transpose to the (nao, nmo) layout used downstream.
     alpha_coef = alpha_c.reshape(n_alpha, nbasis).T
+    ao_perm = _fchk_to_moltui_ao_permutation(shell_types)
+    if ao_perm.shape[0] != nbasis:
+        raise ValueError("fchk shell AO count does not match Number of basis functions")
+    alpha_coef = alpha_coef[ao_perm, :]
 
     beta_sec = sections.get("Beta MO coefficients")
     if beta_sec is not None and beta_sec.array is not None:
         beta_e = _require_array(sections, "Beta Orbital Energies")
         n_beta = beta_e.shape[0]
         beta_coef = beta_sec.array.reshape(n_beta, nbasis).T
+        beta_coef = beta_coef[ao_perm, :]
         mo_energies = np.concatenate([alpha_e, beta_e])
         mo_coef = np.concatenate([alpha_coef, beta_coef], axis=1)
         mo_spins = ["Alpha"] * n_alpha + ["Beta"] * n_beta
@@ -250,9 +370,13 @@ def parse_fchk(filepath: str | Path) -> GtoBasis:
         mo_energies = alpha_e
         mo_coef = alpha_coef
         mo_spins = ["Alpha"] * n_alpha
-        # RHF: doubly-occupied up to n_alpha (== n_beta).
+        # Restricted closed-shell or open-shell: alpha-occupied orbitals carry
+        # one electron, beta-occupied orbitals carry the second one. This yields
+        # [2, ..., 2, 1, ..., 1, 0, ...] for ROHF instead of marking all alpha
+        # orbitals as singly occupied.
         occ = np.zeros(n_alpha)
-        occ[:n_alpha_occ] = 2.0 if n_alpha_occ == n_beta_occ else 1.0
+        occ[:n_alpha_occ] = 1.0
+        occ[:n_beta_occ] += 1.0
         mo_occupations = occ
 
     # --- Normal modes -------------------------------------------------------

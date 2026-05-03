@@ -118,18 +118,7 @@ Toggle between **light** and **dark** mode with `i`.
 
 The molecular structures can be viewed from the inputs of the following programs
 
-- **Orca**
-- **Molcas**
-- **Q-Chem**
-- **Gaussian**
-- **NWChem**
-- **Turbomole**
-- **Molpro**
-- **MRCC**
-- **CFOUR**
-- **Psi4**
-- **GAMESS**
-- **Jaguar**
+- **Orca**, **Molcas**, **Q-Chem**, **Gaussian**, **NWChem**, **Turbomole**, **Molpro**, **MRCC**, **CFOUR**, **Psi4**, **GAMESS** **Jaguar**
 
 
 ## Keybindings

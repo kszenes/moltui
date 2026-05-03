@@ -25,6 +25,7 @@ from .gto import (
     molden_cartesian_component_labels,
 )
 from .molden import OrbitalData
+from .parsers import XYZTrajectory
 
 
 @dataclass
@@ -123,23 +124,81 @@ def _optional_scalar(sections: dict[str, _Section], label: str) -> int | float |
     return sec.scalar
 
 
-def parse_fchk_atoms(filepath: str | Path) -> Molecule:
-    """Read just the geometry from a Gaussian fchk file."""
-    sections = _read_sections(Path(filepath))
-    z = _require_array(sections, "Atomic numbers").astype(int)
-    coords_bohr = _require_array(sections, "Current cartesian coordinates").reshape(-1, 3)
-    if coords_bohr.shape[0] != z.shape[0]:
-        raise ValueError("fchk atom count and coordinate count disagree")
+def _molecule_from_atomic_numbers_and_coords(
+    z: np.ndarray, coords_angstrom: np.ndarray
+) -> Molecule:
     atoms = [
         Atom(
             element=get_element_by_number(int(z[i])),
-            position=coords_bohr[i] * BOHR_TO_ANGSTROM,
+            position=coords_angstrom[i],
         )
         for i in range(z.shape[0])
     ]
     mol = Molecule(atoms=atoms, bonds=[])
     mol.detect_bonds()
     return mol
+
+
+def parse_fchk_atoms(filepath: str | Path) -> Molecule:
+    """Read just the current geometry from a Gaussian fchk file."""
+    sections = _read_sections(Path(filepath))
+    z = _require_array(sections, "Atomic numbers").astype(int)
+    coords_bohr = _require_array(sections, "Current cartesian coordinates").reshape(-1, 3)
+    if coords_bohr.shape[0] != z.shape[0]:
+        raise ValueError("fchk atom count and coordinate count disagree")
+    return _molecule_from_atomic_numbers_and_coords(z, coords_bohr * BOHR_TO_ANGSTROM)
+
+
+def _fchk_trajectory_prefix_and_counts(
+    sections: dict[str, _Section],
+) -> tuple[str, np.ndarray] | None:
+    irc_sec = sections.get("IRC Number of geometries")
+    if irc_sec is not None and irc_sec.array is not None:
+        return "IRC point", irc_sec.array.astype(int)
+
+    opt_sec = sections.get("Optimization Number of geometries")
+    if opt_sec is not None and opt_sec.array is not None:
+        return "Opt point", opt_sec.array.astype(int)
+
+    return None
+
+
+def parse_fchk_trajectory(filepath: str | Path) -> XYZTrajectory:
+    """Read optimization/scan/IRC geometries from a Gaussian fchk file.
+
+    Gaussian stores trajectory geometries grouped by optimization/IRC "points".
+    MolTUI presents them as one flattened sequence in file order. Coordinates are
+    converted from Bohr to Å, matching :func:`parse_xyz_trajectory`.
+    """
+    sections = _read_sections(Path(filepath))
+    z = _require_array(sections, "Atomic numbers").astype(int)
+    n_atoms = z.shape[0]
+
+    prefix_counts = _fchk_trajectory_prefix_and_counts(sections)
+    if prefix_counts is None:
+        raise ValueError("fchk file does not contain an optimization/IRC trajectory")
+    prefix, n_geometries_per_point = prefix_counts
+
+    frames_bohr: list[np.ndarray] = []
+    for point_idx, _expected_count in enumerate(n_geometries_per_point, start=1):
+        label = f"{prefix} {point_idx:7d} Geometries"
+        sec = sections.get(label)
+        if sec is None or sec.array is None:
+            raise ValueError(f"fchk trajectory missing section: {label!r}")
+        if sec.array.size % (n_atoms * 3) != 0:
+            raise ValueError(f"fchk trajectory section has invalid length: {label!r}")
+        point_frames = sec.array.reshape(-1, n_atoms, 3)
+        # Gaussian/third-party writers may disagree with the count block; use
+        # the actual geometry data but make malformed sections fail above when
+        # they are not whole frames.
+        frames_bohr.extend(point_frames)
+
+    if not frames_bohr:
+        raise ValueError("fchk trajectory contains no geometries")
+
+    frames = np.stack(frames_bohr, axis=0) * BOHR_TO_ANGSTROM
+    molecule = _molecule_from_atomic_numbers_and_coords(z, frames[0])
+    return XYZTrajectory(molecule=molecule, frames=frames)
 
 
 def _fchk_to_moltui_ao_permutation(shell_types: np.ndarray) -> np.ndarray:

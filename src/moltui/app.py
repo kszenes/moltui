@@ -712,14 +712,18 @@ class MoltuiApp(App):
         )
 
     def _has_animation(self) -> bool:
-        return self._has_normal_modes or self._has_trajectory
+        if self._view_mode == _VIEW_GEOMETRY:
+            return self._has_trajectory
+        if self._view_mode == _VIEW_NORMAL:
+            return self._has_normal_modes
+        return False
 
     def _apply_active_animation_geometry(self) -> None:
         recompute_bonds = False
-        if self.trajectory_data is not None:
+        if self._view_mode == _VIEW_GEOMETRY and self.trajectory_data is not None:
             coords = self.trajectory_data.frames[self.trajectory_data.frame_index]
             recompute_bonds = True
-        elif self.normal_mode_data is not None:
+        elif self._view_mode == _VIEW_NORMAL and self.normal_mode_data is not None:
             mode = self.normal_mode_data.mode_vectors[self.normal_mode_data.mode_index]
             disp = self.normal_mode_data.amplitude * np.sin(self.normal_mode_data.phase) * mode
             coords = self.normal_mode_data.equilibrium_coords + disp
@@ -758,12 +762,27 @@ class MoltuiApp(App):
         view._invalidate_cache()
         self._update_title()
 
+    def _apply_orbital_geometry(self) -> None:
+        if self.orbital_data is None or not hasattr(self.orbital_data, "molecule"):
+            return
+        orbital_molecule = self.orbital_data.molecule
+        if len(orbital_molecule.atoms) != len(self.molecule.atoms):
+            return
+        for atom, orbital_atom in zip(self.molecule.atoms, orbital_molecule.atoms, strict=True):
+            atom.position = orbital_atom.position.copy()
+        self.molecule.detect_bonds_auto()
+        view = self._query_molecule_view()
+        if view is None:
+            return
+        view._invalidate_cache()
+        self._update_title()
+
     def _animation_tick(self) -> None:
-        if self.trajectory_data is not None:
+        if self._view_mode == _VIEW_GEOMETRY and self.trajectory_data is not None:
             n_frames = self.trajectory_data.frames.shape[0]
             if n_frames > 1:
                 self.trajectory_data.frame_index = (self.trajectory_data.frame_index + 1) % n_frames
-        elif self.normal_mode_data is not None:
+        elif self._view_mode == _VIEW_NORMAL and self.normal_mode_data is not None:
             self.normal_mode_data.phase += self.normal_mode_data.phase_step
         self._apply_active_animation_geometry()
 
@@ -1242,6 +1261,8 @@ class MoltuiApp(App):
                 self._stop_playback()
             if self.normal_mode_data is not None:
                 self._reset_normal_mode_geometry()
+            if self.trajectory_data is not None:
+                self._apply_active_animation_geometry()
             panel = self.query_one(GeometryPanel)
             if not self._panel_hidden:
                 panel.add_class("visible")
@@ -1253,6 +1274,7 @@ class MoltuiApp(App):
                 self._stop_playback()
             if self.normal_mode_data is not None:
                 self._reset_normal_mode_geometry()
+            self._apply_orbital_geometry()
             view.show_orbitals = True
             if self._has_orbital_mos():
                 mo_panel = self.query_one(MOPanel)
@@ -1673,19 +1695,45 @@ def run():
             if orbital_data.n_mos > 0:
                 isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
         elif filetype == "fchk":
-            from .fchk import load_fchk_data
+            from .fchk import load_fchk_data, parse_fchk_atoms, parse_fchk_trajectory
 
-            orbital_data = load_fchk_data(filepath)
-            molecule = orbital_data.molecule
-            if orbital_data.normal_modes is not None:
-                eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])
-                normal_mode_data = NormalModeData(
-                    equilibrium_coords=eq_coords,
-                    mode_vectors=orbital_data.normal_modes,
-                    frequencies=orbital_data.mode_frequencies,
+            trajectory = None
+            try:
+                trajectory = parse_fchk_trajectory(filepath)
+            except ValueError as traj_exc:
+                if "does not contain" not in str(traj_exc):
+                    raise
+            else:
+                trajectory_data = TrajectoryData(frames=trajectory.frames)
+
+            try:
+                orbital_data = load_fchk_data(filepath)
+            except ValueError as orbital_exc:
+                if "missing required" not in str(orbital_exc):
+                    raise
+                # Some fchk files contain only geometries/trajectories and no
+                # basis/MO blocks. Still open them in geometry mode.
+                molecule = (
+                    trajectory.molecule if trajectory is not None else parse_fchk_atoms(filepath)
                 )
-            if orbital_data.n_mos > 0:
-                isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
+            else:
+                molecule = orbital_data.molecule
+                if trajectory is not None:
+                    # Show the first trajectory frame initially, matching XYZ
+                    # trajectory behavior, while retaining MO/normal-mode data
+                    # when the fchk also contains it.
+                    molecule = trajectory.molecule
+                if orbital_data.normal_modes is not None:
+                    eq_coords = np.array(
+                        [atom.position.copy() for atom in orbital_data.molecule.atoms]
+                    )
+                    normal_mode_data = NormalModeData(
+                        equilibrium_coords=eq_coords,
+                        mode_vectors=orbital_data.normal_modes,
+                        frequencies=orbital_data.mode_frequencies,
+                    )
+                if orbital_data.n_mos > 0:
+                    isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
         elif filetype == "hess":
             hess_data = parse_orca_hess_data(filepath)
             molecule = hess_data.molecule

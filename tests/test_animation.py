@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import types
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -129,6 +130,56 @@ async def test_single_frame_trajectory_does_not_autoplay() -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         assert not app._is_playing
+
+
+@pytest.mark.asyncio
+async def test_mo_mode_with_trajectory_stops_playback_and_uses_orbital_geometry() -> None:
+    _install_skimage_stub()
+
+    from moltui.app import MoleculeView, MoltuiApp, TrajectoryData
+    from moltui.elements import Atom, Molecule, get_element
+
+    H = get_element("H")
+    trajectory_frames = np.array(
+        [
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            [[5.0, 0.0, 0.0], [5.0, 0.0, 1.0]],
+        ],
+        dtype=np.float64,
+    )
+    initial_molecule = Molecule(
+        atoms=[Atom(H, p.copy()) for p in trajectory_frames[0]],
+        bonds=[],
+    )
+    orbital_positions = np.array([[9.0, 0.0, 0.0], [9.0, 0.0, 1.0]], dtype=np.float64)
+    orbital_molecule = Molecule(atoms=[Atom(H, p.copy()) for p in orbital_positions], bonds=[])
+    orbital_data = SimpleNamespace(
+        molecule=orbital_molecule,
+        mo_energies=np.array([-0.5]),
+        mo_occupations=np.array([2.0]),
+        mo_symmetries=["A1"],
+        mo_spins=["Alpha"],
+        n_mos=1,
+        homo_idx=0,
+        has_mo_energies=True,
+        has_mo_occupations=True,
+    )
+    app = MoltuiApp(
+        molecule=initial_molecule,
+        filepath="peroxide_opt.fchk",
+        trajectory_data=TrajectoryData(frames=trajectory_frames),
+        orbital_data=orbital_data,
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app._view_mode == "mo"
+        assert not app._is_playing
+        assert app.query_one(MoleculeView).show_orbitals
+        np.testing.assert_allclose(
+            [atom.position for atom in app.molecule.atoms],
+            orbital_positions,
+        )
 
 
 @pytest.mark.asyncio

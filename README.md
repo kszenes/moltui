@@ -96,17 +96,17 @@ Toggle between **light** and **dark** mode with `i`.
 
 ## Supported formats
 
-| Format                | Geometry | Orbitals | Normal Modes |
-|-----------------------|:--------:|:--------:|:------------:|
-| **XYZ** / **extXYZ**  | ✓        | —        | —            |
-| **CIF**               | ✓        | —        | —            |
-| Gaussian **ZMAT**     | ✓        | —        | —            |
-| Gaussian **Cube**     | ✓        | ✓        | —            |
-| **Molden**            | ✓        | ✓        | ✓            |
-| Gaussian **.fchk**    | ✓        | ✓        | ✓            |
-| Orca **.GBW**¹        | ✓        | ✓        | —            |
-| Orca **.hess**        | ✓        | —        | ✓            |
-| **TrexIO**²           | ✓        | ✓        | —            |
+| Format                | Geometry | Trajectory | Orbitals | Normal Modes |
+|-----------------------|:--------:|:----------:|:--------:|:------------:|
+| **XYZ** / **extXYZ**  | ✓        | ✓          | —        | —            |
+| **CIF**               | ✓        | —          | —        | —            |
+| Gaussian **ZMAT**     | ✓        | —          | —        | —            |
+| Gaussian **Cube**     | ✓        | —          | ✓        | —            |
+| **Molden**            | ✓        | —          | ✓        | ✓            |
+| Gaussian **.fchk**    | ✓        | ✓          | ✓        | ✓            |
+| Orca **.GBW**¹        | ✓        | —          | ✓        | —            |
+| Orca **.hess**        | ✓        | —          | —        | ✓            |
+| **TrexIO**²           | ✓        | —          | ✓        | —            |
 
 ✓ supported; — not part of the file format
 

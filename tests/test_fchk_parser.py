@@ -207,6 +207,61 @@ def test_fchk_cartesian_g_coefficients_are_reordered_to_moltui_convention(
     np.testing.assert_array_equal(basis.mo_coefficients, coeff[expected_rows, :])
 
 
+def _write_minimal_trajectory_fchk(
+    path: Path, *, prefix: str = "Opt point", counts: list[int] | None = None
+) -> np.ndarray:
+    if counts is None:
+        counts = [2, 1]
+    z = [1, 8]
+    frames_bohr = []
+    text = "trajectory\nFOpt HF/STO-3G\n"
+    text += _fchk_scalar("Number of atoms", "I", len(z))
+    text += _fchk_array("Atomic numbers", "I", z)
+    for frame_idx in range(sum(counts)):
+        frames_bohr.append(
+            np.array(
+                [
+                    [float(frame_idx), 0.0, 0.0],
+                    [float(frame_idx), 0.0, 1.0],
+                ]
+            )
+        )
+    text += _fchk_array("Current cartesian coordinates", "R", frames_bohr[-1].reshape(-1))
+    count_label = (
+        "IRC Number of geometries" if prefix == "IRC point" else "Optimization Number of geometries"
+    )
+    text += _fchk_array(count_label, "I", counts)
+    offset = 0
+    for point_idx, n_frames in enumerate(counts, start=1):
+        point_frames = np.array(frames_bohr[offset : offset + n_frames])
+        text += _fchk_array(f"{prefix} {point_idx:7d} Geometries", "R", point_frames.reshape(-1))
+        offset += n_frames
+    path.write_text(text)
+    return np.array(frames_bohr)
+
+
+@pytest.mark.parametrize("prefix", ["Opt point", "IRC point"])
+def test_fchk_trajectory_parser_flattens_point_geometries(
+    tmp_path: Path, fchk_module, prefix: str
+) -> None:
+    path = tmp_path / "trajectory.fchk"
+    frames_bohr = _write_minimal_trajectory_fchk(path, prefix=prefix)
+
+    trajectory = fchk_module.parse_fchk_trajectory(path)
+
+    assert trajectory.frames.shape == (3, 2, 3)
+    np.testing.assert_allclose(trajectory.frames, frames_bohr * 0.529177249)
+    np.testing.assert_allclose(trajectory.molecule.atoms[0].position, trajectory.frames[0, 0])
+
+
+def test_fchk_trajectory_parser_reports_missing_trajectory(tmp_path: Path, fchk_module) -> None:
+    path = tmp_path / "not-trajectory.fchk"
+    _write_minimal_shell_fchk(path, shell_type=0)
+
+    with pytest.raises(ValueError, match="does not contain"):
+        fchk_module.parse_fchk_trajectory(path)
+
+
 @pytest.mark.parametrize("stem", PAIRS)
 def test_geometry_matches_molden(stem: str, fchk_module) -> None:
     from moltui.molden import load_molden_data

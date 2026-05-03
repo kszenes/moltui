@@ -170,6 +170,7 @@ class Molecule:
     atoms: list[Atom]
     bonds: list[tuple[int, int]]
     lattice: np.ndarray | None = None  # (3, 3) row-vectors in Angstrom, or None
+    pbc: tuple[bool, bool, bool] | None = None  # periodic axes; None means all axes
     # Per-bond integer cell shift for the j atom relative to i; (0, 0, 0) when
     # both ends are in the same cell. Length matches `bonds` when populated.
     bond_shifts: list[tuple[int, int, int]] | None = None
@@ -197,7 +198,7 @@ class Molecule:
             for bond, shift in zip(self.bonds, self.bond_shifts, strict=False)
             if shift == (0, 0, 0)
         ]
-        return Molecule(atoms=self.atoms, bonds=in_cell, lattice=self.lattice)
+        return Molecule(atoms=self.atoms, bonds=in_cell, lattice=self.lattice, pbc=self.pbc)
 
     def _bond_displacement(self, bond_index: int) -> np.ndarray:
         if self.bond_shifts is None or self.lattice is None or bond_index >= len(self.bond_shifts):
@@ -300,7 +301,9 @@ class Molecule:
         target_positions = np.array([a.position for a in new_atoms], dtype=np.float64)
         target_radii = np.array([a.element.covalent_radius for a in new_atoms], dtype=np.float64)
 
-        for s0, s1, s2 in product((-1, 0, 1), repeat=3):
+        pbc = self.pbc if self.pbc is not None else (True, True, True)
+        shift_ranges = [(-1, 0, 1) if periodic else (0,) for periodic in pbc]
+        for s0, s1, s2 in product(*shift_ranges):
             if (s0, s1, s2) == (0, 0, 0):
                 continue
             disp = s0 * self.lattice[0] + s1 * self.lattice[1] + s2 * self.lattice[2]
@@ -317,7 +320,7 @@ class Molecule:
                 existing[key] = len(new_atoms)  # type: ignore[assignment]
                 new_atoms.append(Atom(element=atom_j.element, position=shifted))
 
-        replicated = Molecule(atoms=new_atoms, bonds=[], lattice=self.lattice)
+        replicated = Molecule(atoms=new_atoms, bonds=[], lattice=self.lattice, pbc=self.pbc)
         replicated.detect_bonds(tolerance=bond_tolerance)
         return replicated
 
@@ -339,21 +342,23 @@ class Molecule:
         fracs = positions @ inv  # rows: fractional coords
 
         new_atoms: list[Atom] = []
+        pbc = self.pbc if self.pbc is not None else (True, True, True)
         for atom, frac in zip(self.atoms, fracs, strict=False):
             shifts_per_dim: list[list[int]] = []
             for d in range(3):
                 f = frac[d] - np.floor(frac[d])
                 shifts = [0]
-                if f < tol:
-                    shifts.append(1)
-                elif 1.0 - f < tol:
-                    shifts.append(-1)
+                if pbc[d]:
+                    if f < tol:
+                        shifts.append(1)
+                    elif 1.0 - f < tol:
+                        shifts.append(-1)
                 shifts_per_dim.append(shifts)
             for s0, s1, s2 in product(*shifts_per_dim):
                 disp = s0 * self.lattice[0] + s1 * self.lattice[1] + s2 * self.lattice[2]
                 new_atoms.append(Atom(element=atom.element, position=atom.position + disp))
 
-        replicated = Molecule(atoms=new_atoms, bonds=[], lattice=self.lattice)
+        replicated = Molecule(atoms=new_atoms, bonds=[], lattice=self.lattice, pbc=self.pbc)
         replicated.detect_bonds()
         return replicated
 
@@ -411,7 +416,9 @@ class Molecule:
 
         bonds: list[tuple[int, int]] = []
         shifts: list[tuple[int, int, int]] = []
-        for s0, s1, s2 in product((-1, 0, 1), repeat=3):
+        pbc = self.pbc if self.pbc is not None else (True, True, True)
+        shift_ranges = [(-1, 0, 1) if periodic else (0,) for periodic in pbc]
+        for s0, s1, s2 in product(*shift_ranges):
             disp = s0 * self.lattice[0] + s1 * self.lattice[1] + s2 * self.lattice[2]
             shifted = positions + disp
             for i in range(n):

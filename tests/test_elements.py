@@ -407,6 +407,38 @@ class TestPeriodicImages:
         replicated = mol.with_periodic_images()
         assert len(replicated.atoms) == 2
 
+    def test_ghost_atoms_respect_nonperiodic_axes(self):
+        H = get_element("H")
+        lattice = np.eye(3) * 4.0
+        mol = Molecule(
+            atoms=[Atom(H, np.array([0.0, 0.0, 0.0]))],
+            bonds=[],
+            lattice=lattice,
+            pbc=(True, True, False),
+        )
+        replicated = mol.with_periodic_images()
+
+        assert len(replicated.atoms) == 4
+        assert {round(atom.position[2], 8) for atom in replicated.atoms} == {0.0}
+
+    def test_bonded_ghost_atoms_respect_nonperiodic_axes(self):
+        H = get_element("H")
+        lattice = np.eye(3) * 4.0
+        mol = Molecule(
+            atoms=[
+                Atom(H, np.array([0.0, 0.0, 0.1])),
+                Atom(H, np.array([0.0, 0.0, 3.9])),
+            ],
+            bonds=[],
+            lattice=lattice,
+            pbc=(True, True, False),
+        )
+        mol.detect_bonds_periodic()
+        replicated = mol.with_bonded_periodic_images()
+
+        assert mol.bonds == []
+        assert {round(atom.position[2], 8) for atom in replicated.atoms} == {0.1, 3.9}
+
     def test_interior_atom_unchanged(self):
         H = get_element("H")
         lattice = np.eye(3) * 4.0

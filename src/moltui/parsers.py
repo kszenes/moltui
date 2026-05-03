@@ -229,10 +229,13 @@ def parse_xyz(filepath: str | Path) -> Molecule:
     species_col = 0
     pos_col = 1
     lattice = None
+    pbc = None
     comment_line = lines[comment_idx] if comment_idx < len(lines) else ""
     metadata = _parse_xyz_comment_metadata(comment_line)
     if "Lattice" in metadata:
         lattice = _parse_lattice(metadata["Lattice"])
+    if "pbc" in metadata:
+        pbc = _parse_pbc(metadata["pbc"])
     if "Properties" in metadata:
         species_col, pos_col = _parse_properties_spec(metadata["Properties"])
 
@@ -255,8 +258,8 @@ def parse_xyz(filepath: str | Path) -> Molecule:
             raise ValueError(f"Invalid XYZ coordinates in line: {line!r}") from exc
         atoms.append(Atom(element, pos))
 
-    molecule = Molecule(atoms=atoms, bonds=[], lattice=lattice)
-    molecule.detect_bonds()
+    molecule = Molecule(atoms=atoms, bonds=[], lattice=lattice, pbc=pbc)
+    molecule.detect_bonds_auto()
     return molecule
 
 
@@ -276,6 +279,26 @@ def _parse_lattice(value: str) -> np.ndarray:
     if len(parts) != 9:
         raise ValueError(f"Lattice must contain 9 floats, got {len(parts)}: {value!r}")
     return np.array([float(p) for p in parts], dtype=np.float64).reshape(3, 3)
+
+
+def _parse_pbc(value: str) -> tuple[bool, bool, bool]:
+    tokens = value.split()
+    if len(tokens) == 1:
+        tokens = tokens * 3
+    if len(tokens) != 3:
+        raise ValueError(f"pbc must contain 1 or 3 boolean values, got {len(tokens)}: {value!r}")
+    true_values = {"t", "true", "1"}
+    false_values = {"f", "false", "0"}
+    parsed: list[bool] = []
+    for token in tokens:
+        lower = token.lower()
+        if lower in true_values:
+            parsed.append(True)
+        elif lower in false_values:
+            parsed.append(False)
+        else:
+            raise ValueError(f"Invalid pbc boolean value: {token!r}")
+    return (parsed[0], parsed[1], parsed[2])
 
 
 def _parse_properties_spec(value: str) -> tuple[int, int]:
@@ -327,6 +350,7 @@ def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
     frames: list[np.ndarray] = []
     symbols_ref: list[str] | None = None
     lattice: np.ndarray | None = None
+    pbc: tuple[bool, bool, bool] | None = None
     species_col = 0
     pos_col = 1
     is_first_frame = True
@@ -352,6 +376,8 @@ def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
             metadata = _parse_xyz_comment_metadata(comment_line)
             if "Lattice" in metadata:
                 lattice = _parse_lattice(metadata["Lattice"])
+            if "pbc" in metadata:
+                pbc = _parse_pbc(metadata["pbc"])
             if "Properties" in metadata:
                 species_col, pos_col = _parse_properties_spec(metadata["Properties"])
             is_first_frame = False
@@ -393,7 +419,7 @@ def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
         Atom(element=_resolve_species(symbol), position=first_frame[i].copy())
         for i, symbol in enumerate(symbols_ref)
     ]
-    mol = Molecule(atoms=atoms, bonds=[], lattice=lattice)
+    mol = Molecule(atoms=atoms, bonds=[], lattice=lattice, pbc=pbc)
     mol.detect_bonds_auto()
     return XYZTrajectory(molecule=mol, frames=np.stack(frames, axis=0), lattice=lattice)
 
@@ -1104,6 +1130,25 @@ def parse_zmat_text(text: str) -> Molecule:
     return mol
 
 
+def parse_poscar(filepath: str | Path) -> Molecule:
+    from .periodic.vasp import parse_poscar as _parse_poscar
+
+    return _parse_poscar(filepath)
+
+
+def parse_xsf(filepath: str | Path) -> Molecule:
+    from .periodic.xsf import parse_xsf as _parse_xsf
+
+    return _parse_xsf(filepath)
+
+
+def _is_poscar_like_path(filepath: Path) -> bool:
+    return filepath.name.lower() in ("poscar", "contcar") or filepath.suffix.lower() in (
+        ".vasp",
+        ".poscar",
+    )
+
+
 def load_molecule(filepath: str | Path) -> Molecule:
     filepath = Path(filepath)
     suffix = filepath.suffix.lower()
@@ -1125,6 +1170,10 @@ def load_molecule(filepath: str | Path) -> Molecule:
         return parse_zmat(filepath)
     elif suffix == ".cif":
         return parse_cif(filepath)
+    elif _is_poscar_like_path(filepath):
+        return parse_poscar(filepath)
+    elif suffix == ".xsf":
+        return parse_xsf(filepath)
     elif suffix == ".gbw":
         raise ValueError(
             ".gbw files must be opened via the moltui command, not load_molecule(). "
@@ -1151,8 +1200,9 @@ def load_molecule(filepath: str | Path) -> Molecule:
         if is_trexio_path(filepath):
             return load_molecule_from_trexio(filepath)
         raise ValueError(
-            f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, "
-            ".hess, .cif, .gbw, a QC input (Orca, Q-Chem, Gaussian, NWChem, "
-            "Turbomole, Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, or Jaguar), "
-            "or TREXIO (.h5, .hdf5, .trexio; install optional extra: trexio)"
+            f"Unsupported file format: {suffix}. Use .xyz, .extxyz, .cube, .molden, "
+            ".hess, .cif, POSCAR/CONTCAR/.vasp, .xsf, .gbw, a QC input "
+            "(Orca, Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro, MRCC, "
+            "CFOUR, Psi4, GAMESS, or Jaguar), or TREXIO (.h5, .hdf5, .trexio; "
+            "install optional extra: trexio)"
         )

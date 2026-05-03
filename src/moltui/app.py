@@ -120,9 +120,9 @@ def _build_view_render_scene(
 
     cell_lattice = mol.lattice if view.show_cell else None
     if not view.show_bonds:
-        mol = Molecule(atoms=mol.atoms, bonds=[], lattice=cell_lattice)
+        mol = Molecule(atoms=mol.atoms, bonds=[], lattice=cell_lattice, pbc=mol.pbc)
     elif cell_lattice is not mol.lattice:
-        mol = Molecule(atoms=mol.atoms, bonds=mol.bonds, lattice=cell_lattice)
+        mol = Molecule(atoms=mol.atoms, bonds=mol.bonds, lattice=cell_lattice, pbc=mol.pbc)
 
     isos = view.isosurfaces if view.show_orbitals else None
     return mol, isos, view.show_cell
@@ -229,14 +229,34 @@ class MoleculeView(Widget):
     ) -> None:
         self.molecule = molecule
         self.isosurfaces = isosurfaces or []
-        mol_radius = molecule.radius()
-        self.camera_distance = max(4.0, mol_radius * 3.0)
+        scene_radius = self._scene_radius()
+        self.camera_distance = max(4.0, scene_radius * 3.0)
         self._invalidate_cache()
+
+    def _scene_radius(self) -> float:
+        if self.molecule is None:
+            return 1.0
+        radius = self.molecule.radius()
+        if self.molecule.lattice is None:
+            return radius
+        lattice = self.molecule.lattice
+        center = 0.5 * (lattice[0] + lattice[1] + lattice[2])
+        corners = np.array(
+            [
+                s0 * lattice[0] + s1 * lattice[1] + s2 * lattice[2]
+                for s0 in (0, 1)
+                for s1 in (0, 1)
+                for s2 in (0, 1)
+            ],
+            dtype=np.float64,
+        )
+        cell_radius = float(np.linalg.norm(corners - center, axis=1).max())
+        return max(radius, cell_radius)
 
     def _clamp_pan(self) -> None:
         if self.molecule is None:
             return
-        max_pan = self.molecule.radius() * 0.5
+        max_pan = self._scene_radius() * 0.5
         self.pan_x = max(-max_pan, min(max_pan, self.pan_x))
         self.pan_y = max(-max_pan, min(max_pan, self.pan_y))
 
@@ -1501,6 +1521,10 @@ def _detect_filetype(filepath: str) -> str:
         return "xyz"
     if suffix == ".cif":
         return "cif"
+    if path.name.lower() in ("poscar", "contcar") or suffix in (".vasp", ".poscar"):
+        return "poscar"
+    if suffix == ".xsf":
+        return "xsf"
     if suffix in (".h5", ".hdf5") and path.is_file():
         return "trexio"
     if suffix == ".trexio" and (path.is_file() or path.is_dir()):
@@ -1545,8 +1569,9 @@ def _detect_filetype(filepath: str) -> str:
         return "cube"
     raise ValueError(
         f"Unsupported file format: {filepath!s}. "
-        "Supported formats: .xyz, .extxyz, .cif, .cube, .molden, .fchk, .hess, "
-        ".zmat, .gbw, .h5/.hdf5/.trexio (TREXIO), and QC inputs from "
+        "Supported formats: .xyz, .extxyz, .cif, POSCAR/CONTCAR/.vasp, .xsf, "
+        ".cube, .molden, .fchk, .hess, .zmat, .gbw, .h5/.hdf5/.trexio "
+        "(TREXIO), and QC inputs from "
         "Orca, Molcas, Q-Chem, Gaussian, NWChem, Turbomole, Molpro, MRCC, "
         "CFOUR, Psi4, GAMESS, and Jaguar."
     )

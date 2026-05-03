@@ -179,6 +179,30 @@ async def test_sidebar_visual_restore_v_s_s_keeps_visual_panel() -> None:
         assert not geometry.has_class("visible")
 
 
+def test_pan_clamp_uses_periodic_cell_radius_for_single_atom() -> None:
+    _install_skimage_stub()
+
+    from moltui.app import MoleculeView
+    from moltui.elements import Atom, Molecule, get_element
+
+    H = get_element("H")
+    mol = Molecule(
+        atoms=[Atom(H, np.array([0.2, 0.4, 0.6]))],
+        bonds=[],
+        lattice=np.array([[2.0, 0.0, 0.0], [4.0, 6.0, 0.0], [-6.0, 2.0, 10.0]]),
+    )
+    view = MoleculeView()
+    view.set_molecule(mol)
+    view.pan_x = 1.0
+    view.pan_y = -1.0
+
+    view._clamp_pan()
+
+    assert view.pan_x != 0.0
+    assert view.pan_y != 0.0
+    assert view.camera_distance > 4.0
+
+
 @pytest.mark.asyncio
 async def test_periodic_bond_highlight_resolves_to_adjacent_display_atoms() -> None:
     _install_skimage_stub()

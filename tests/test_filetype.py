@@ -36,6 +36,19 @@ class TestDetectFiletype:
         path.write_text("data_x\n_cell_length_a 1.0\n")
         assert _detect_filetype(str(path)) == "cif"
 
+    def test_poscar_by_name_and_vasp_suffix(self, tmp_path: Path):
+        poscar = tmp_path / "POSCAR"
+        poscar.write_text("comment\n1\n1 0 0\n0 1 0\n0 0 1\nH\n1\nDirect\n0 0 0\n")
+        vasp = tmp_path / "case.vasp"
+        vasp.write_text(poscar.read_text())
+        assert _detect_filetype(str(poscar)) == "poscar"
+        assert _detect_filetype(str(vasp)) == "poscar"
+
+    def test_xsf_by_extension(self, tmp_path: Path):
+        path = tmp_path / "x.xsf"
+        path.write_text("CRYSTAL\n")
+        assert _detect_filetype(str(path)) == "xsf"
+
     def test_cube_detected(self, tmp_path: Path):
         path = tmp_path / "sample.cube"
         path.write_text("comment 1\ncomment 2\n2 0.0 0.0 0.0\n")

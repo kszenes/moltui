@@ -44,7 +44,7 @@ The modes consist of **molecular orbitals**, **normal modes** and **geometry** a
 
 #### Periodic Systems
 
-- **Periodic systems** can be provided using the **extended XYZ** and **CIF** file formats
+- **Periodic systems** can be provided using **extended XYZ**, **CIF**, **POSCAR/CONTCAR/VASP**, and **XSF** structure files
 - The **toggling** of the **periodicity** is achieved via the `b` key
 - The **rendering of the box** can be toggled in the visual pane
 
@@ -100,6 +100,8 @@ Toggle between **light** and **dark** mode with `i`.
 |-----------------------|:--------:|:----------:|:--------:|:------------:|
 | **XYZ** / **extXYZ**  | ✓        | ✓          | —        | —            |
 | **CIF**               | ✓        | —          | —        | —            |
+| VASP **POSCAR/CONTCAR** / **.vasp** | ✓ | — | — | — |
+| **XSF**               | ✓        | —          | —        | —            |
 | Gaussian **ZMAT**     | ✓        | —          | —        | —            |
 | Gaussian **Cube**     | ✓        | —          | ✓        | —            |
 | **Molden**            | ✓        | —          | ✓        | ✓            |

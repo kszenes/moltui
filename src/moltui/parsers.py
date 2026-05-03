@@ -198,7 +198,60 @@ def parse_orca_hess_data(filepath: str | Path) -> HessData:
 
 
 def parse_xyz(filepath: str | Path) -> Molecule:
-    return parse_xyz_trajectory(filepath).molecule
+    """Parse the first frame of an XYZ/extXYZ file as a molecule."""
+    filepath = Path(filepath)
+    with open(filepath) as f:
+        lines = f.readlines()
+
+    idx = 0
+    while idx < len(lines) and not lines[idx].strip():
+        idx += 1
+    if idx >= len(lines):
+        raise ValueError("Empty XYZ file")
+
+    try:
+        n_atoms = int(lines[idx].strip())
+    except ValueError as exc:
+        raise ValueError(f"Invalid XYZ frame header at line {idx + 1}") from exc
+
+    comment_idx = idx + 1
+    frame_start = idx + 2
+    frame_end = frame_start + n_atoms
+    if frame_end > len(lines):
+        raise ValueError("Unexpected end of XYZ file while reading frame atoms")
+
+    species_col = 0
+    pos_col = 1
+    lattice = None
+    comment_line = lines[comment_idx] if comment_idx < len(lines) else ""
+    metadata = _parse_xyz_comment_metadata(comment_line)
+    if "Lattice" in metadata:
+        lattice = _parse_lattice(metadata["Lattice"])
+    if "Properties" in metadata:
+        species_col, pos_col = _parse_properties_spec(metadata["Properties"])
+
+    atoms: list[Atom] = []
+    for line in lines[frame_start:frame_end]:
+        parts = line.split()
+        if len(parts) <= max(species_col, pos_col + 2):
+            raise ValueError(f"Invalid XYZ atom line: {line!r}")
+        element = _resolve_species(parts[species_col])
+        try:
+            pos = np.array(
+                [
+                    float(parts[pos_col]),
+                    float(parts[pos_col + 1]),
+                    float(parts[pos_col + 2]),
+                ],
+                dtype=np.float64,
+            )
+        except ValueError as exc:
+            raise ValueError(f"Invalid XYZ coordinates in line: {line!r}") from exc
+        atoms.append(Atom(element, pos))
+
+    molecule = Molecule(atoms=atoms, bonds=[], lattice=lattice)
+    molecule.detect_bonds()
+    return molecule
 
 
 def _parse_xyz_comment_metadata(line: str) -> dict[str, str]:

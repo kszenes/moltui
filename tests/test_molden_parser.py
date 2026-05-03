@@ -46,6 +46,55 @@ Occup= 2.0
     assert ao.shape == (1, 6)
 
 
+def test_parse_molden_mos_without_symmetry_blocks(tmp_path: Path) -> None:
+    """Some Molden writers start each orbital with Ene= and omit Sym=."""
+    path = _write_molden(
+        tmp_path,
+        """[Molden Format]
+[Atoms] AU
+H 1 1 0.0 0.0 0.0
+[GTO]
+1 0
+s 1 1.0
+1.0 1.0
+
+[MO]
+Ene= -0.5
+Spin= Alpha
+Occup= 2.0
+1 1.0
+Ene= 0.2
+Spin= Alpha
+Occup= 0.0
+1 0.5
+""",
+    )
+
+    basis = parse_molden(path)
+
+    assert basis.mo_coefficients.shape == (1, 2)
+    np.testing.assert_allclose(basis.mo_energies, [-0.5, 0.2])
+    assert basis.mo_symmetries == ["A", "A"]
+
+
+def test_parse_molden_accepts_h_shells(tmp_path: Path) -> None:
+    path = _write_molden(
+        tmp_path,
+        """[Molden Format]
+[Atoms] AU
+H 1 1 0.0 0.0 0.0
+[GTO]
+1 0
+h 1 1.0
+1.0 1.0
+""",
+    )
+
+    basis = parse_molden(path)
+
+    assert basis.shells[0].l == 5
+
+
 def test_parse_molden_spherical_flags(tmp_path: Path) -> None:
     """Extended Molden flags should update spherical/cartesian behavior."""
     path = _write_molden(

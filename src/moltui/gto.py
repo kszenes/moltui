@@ -13,7 +13,7 @@ import numpy as np
 
 BOHR_TO_ANGSTROM = 0.529177249
 
-SHELL_LABEL_TO_L = {"s": 0, "p": 1, "d": 2, "f": 3, "g": 4}
+SHELL_LABEL_TO_L = {label: idx for idx, label in enumerate("spdfghiklmnoqrtuvwxyz")}
 
 
 def _parse_float(token: str) -> float:
@@ -309,6 +309,11 @@ def parse_molden(filepath: str | Path) -> GtoBasis:
                         sym = sym.capitalize()
                     mo_symmetries.append(sym)
                 elif mline.startswith("Ene="):
+                    if current_coeffs:
+                        # Some Molden writers omit Sym= for each MO and start
+                        # the next orbital directly with Ene=.
+                        mo_coeffs_list.append(current_coeffs)
+                        current_coeffs = []
                     mo_energies.append(_parse_float(mline.split("=")[1].strip()))
                 elif mline.startswith("Spin="):
                     mo_spins.append(mline.split("=")[1].strip())
@@ -387,6 +392,14 @@ def parse_molden(filepath: str | Path) -> GtoBasis:
         mo_coeff_arr = np.array(mo_coeffs_list, dtype=np.float64).T  # (nao, nmo)
     else:
         mo_coeff_arr = np.zeros((0, 0), dtype=np.float64)
+
+    n_mos = mo_coeff_arr.shape[1]
+    if len(mo_symmetries) < n_mos:
+        mo_symmetries.extend(["A"] * (n_mos - len(mo_symmetries)))
+    if len(mo_spins) < n_mos:
+        mo_spins.extend(["Alpha"] * (n_mos - len(mo_spins)))
+    if len(mo_occupations) < n_mos:
+        mo_occupations.extend([0.0] * (n_mos - len(mo_occupations)))
 
     freqs_arr = np.array(frequencies, dtype=np.float64) if frequencies else None
     if normal_modes:

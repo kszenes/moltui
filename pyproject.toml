@@ -37,6 +37,7 @@ dev = [
     "moltui[test-pyscf]",
     "moltui[test-trexio]",
     "moltui[test-ase]",
+    "moltui[test-iodata]",
 ]
 
 trexio = ["trexio>=2.0"]
@@ -58,6 +59,10 @@ test-trexio = [
 test-ase = [
     "moltui[test]",
     "ase>=3.22",
+]
+test-iodata = [
+    "moltui[test]",
+    "qc-iodata>=1.0.1",
 ]
 
 [build-system]

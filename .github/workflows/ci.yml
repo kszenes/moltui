@@ -98,6 +98,28 @@ jobs:
       - name: Run TREXIO-related tests
         run: uv run pytest tests/test_trexio_parser.py tests/test_filetype.py tests/test_app_trexio_mo.py
 
+  tests-iodata:
+    name: Tests with IODATA (Python 3.11)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install project and test dependencies (with IODATA)
+        run: uv sync --extra test-iodata
+
+      - name: Run IODATA comparison tests
+        run: uv run pytest tests/test_fchk_iodata.py
+
   cclib-regression:
     name: cclib-data parser regression (Python 3.11)
     runs-on: ubuntu-latest

@@ -1,8 +1,8 @@
 ## Source
 
-The `.fchk` files in this directory are taken verbatim from the [iodata test data](https://github.com/theochem/iodata/tree/main/iodata/test/data). The paired `.molden` files are produced by running each fchk through `iodata.dump_one` (orbital files) or `cclib.io.ccwrite` (the freq file — `iodata`'s molden writer drops `[FREQ]`/`[FR-NORM-COORD]`).
+The `.fchk` files in this directory are a small subset taken verbatim from the [iodata test data](https://github.com/theochem/iodata/tree/main/iodata/test/data). The paired `.molden` files are produced by running each fchk through `iodata.dump_one` (orbital files) or `cclib.io.ccwrite` (the freq file — `iodata`'s molden writer drops `[FREQ]`/`[FR-NORM-COORD]`).
 
-Selection covers the parser's main schema dimensions:
+Selection covers the parser's main schema dimensions. The full IODATA fchk corpus is not vendored; optional IODATA comparison tests read it from the installed `qc-iodata` package.
 
 - `h2o_sto3g.fchk` — RHF, s/p only (smoke test)
 - `ch3_hf_sto3g.fchk` — UHF (alpha + beta MO blocks)

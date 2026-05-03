@@ -744,6 +744,7 @@ def _parse_cif_atoms(
     cx_idx = col_index.get("_atom_site_cartn_x")
     cy_idx = col_index.get("_atom_site_cartn_y")
     cz_idx = col_index.get("_atom_site_cartn_z")
+    occupancy_idx = col_index.get("_atom_site_occupancy")
 
     coord_idx: tuple[int, int, int] | None = None
     use_fractional = False
@@ -774,6 +775,7 @@ def _parse_cif_atoms(
     atoms: list[Atom] = []
     frac_symbols: list[str] = []
     frac_coords: list[np.ndarray] = []
+    warned_fractional_occupancy = False
     i = start_idx
     while i < len(lines):
         s = lines[i].strip()
@@ -798,6 +800,22 @@ def _parse_cif_atoms(
                 break
         if not symbol_clean:
             raise ValueError(f"Could not derive element from CIF symbol {symbol!r}")
+
+        if occupancy_idx is not None and not warned_fractional_occupancy:
+            occ_token = _strip_cif_value(tokens[occupancy_idx])
+            if occ_token not in ("?", "."):
+                try:
+                    occupancy = _cif_float(occ_token)
+                except ValueError:
+                    occupancy = 1.0
+                if not np.isclose(occupancy, 1.0):
+                    warnings.warn(
+                        "CIF fractional occupancies/disorder are displayed as full atoms; "
+                        "occupancy metadata is ignored.",
+                        CIFParseWarning,
+                        stacklevel=2,
+                    )
+                    warned_fractional_occupancy = True
 
         assert coord_idx is not None
         ix, iy, iz = coord_idx

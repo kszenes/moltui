@@ -34,6 +34,28 @@ def _write_graphite_cif(tmp_path: Path) -> Path:
     return path
 
 
+def _write_partial_occupancy_cif(tmp_path: Path) -> Path:
+    path = tmp_path / "partial.cif"
+    path.write_text(
+        "data_x\n"
+        "_cell_length_a 5.0\n"
+        "_cell_length_b 5.0\n"
+        "_cell_length_c 5.0\n"
+        "_cell_angle_alpha 90\n"
+        "_cell_angle_beta 90\n"
+        "_cell_angle_gamma 90\n"
+        "loop_\n"
+        "_atom_site_label\n"
+        "_atom_site_type_symbol\n"
+        "_atom_site_fract_x\n"
+        "_atom_site_fract_y\n"
+        "_atom_site_fract_z\n"
+        "_atom_site_occupancy\n"
+        "C1 C 0.0 0.0 0.0 0.5\n"
+    )
+    return path
+
+
 def _write_graphite_extxyz(tmp_path: Path) -> Path:
     path = tmp_path / "graphite.extxyz"
     path.write_text(
@@ -82,6 +104,16 @@ def _periodic_h2():
     )
     mol.detect_bonds_periodic()
     return mol
+
+
+def test_cif_fractional_occupancy_warning_becomes_startup_toast(tmp_path: Path) -> None:
+    from moltui.app import _prepare_cif_cli_session
+
+    mol, toast = _prepare_cif_cli_session(_write_partial_occupancy_cif(tmp_path))
+
+    assert len(mol.atoms) == 1
+    assert toast is not None
+    assert "fractional occupancies" in toast
 
 
 @pytest.mark.asyncio

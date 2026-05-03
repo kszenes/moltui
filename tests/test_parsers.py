@@ -530,6 +530,39 @@ class TestParseCIF:
         symbols = [a.element.symbol for a in mol.atoms]
         assert symbols == ["Ca", "C"]
 
+    def test_fractional_occupancy_warns(self, tmp_path: Path):
+        """Partial CIF occupancies are shown as full atoms but warn the user."""
+        import warnings as _warnings
+
+        from moltui.parsers import CIFParseWarning
+
+        path = tmp_path / "partial.cif"
+        path.write_text(
+            "data_x\n"
+            "_cell_length_a 5.0\n"
+            "_cell_length_b 5.0\n"
+            "_cell_length_c 5.0\n"
+            "_cell_angle_alpha 90\n"
+            "_cell_angle_beta 90\n"
+            "_cell_angle_gamma 90\n"
+            "loop_\n"
+            "_atom_site_label\n"
+            "_atom_site_type_symbol\n"
+            "_atom_site_fract_x\n"
+            "_atom_site_fract_y\n"
+            "_atom_site_fract_z\n"
+            "_atom_site_occupancy\n"
+            "C1 C 0.0 0.0 0.0 0.5\n"
+            "O1 O 0.5 0.5 0.5 1.0\n"
+        )
+        with _warnings.catch_warnings(record=True) as caught:
+            _warnings.simplefilter("always", CIFParseWarning)
+            mol = parse_cif(path)
+        assert [atom.element.symbol for atom in mol.atoms] == ["C", "O"]
+        cif_warns = [w for w in caught if issubclass(w.category, CIFParseWarning)]
+        assert len(cif_warns) == 1
+        assert "fractional occupancies" in str(cif_warns[0].message)
+
     def test_hm_name_without_symops_warns(self, tmp_path: Path):
         """Non-P1 H-M space group with no symop loop must emit CIFParseWarning."""
         import warnings as _warnings

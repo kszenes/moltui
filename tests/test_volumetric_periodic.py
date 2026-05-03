@@ -14,6 +14,7 @@ from moltui.parsers import (
     parse_vasp_volumetric_data,
     parse_xsf_volumetric_data,
 )
+from tests.structure_compare import assert_molecule_matches_ase_atoms
 
 
 def _write_tiny_cube(tmp_path: Path) -> Path:
@@ -94,7 +95,7 @@ def test_zero_axis_periodic_cube_can_extract_isosurface(tmp_path: Path):
     assert all(np.isfinite(mesh.normals).all() for mesh in meshes)
 
 
-def test_xsf_datagrid_parses_first_grid(tmp_path: Path):
+def _write_tiny_xsf_datagrid(tmp_path: Path) -> Path:
     path = tmp_path / "grid.xsf"
     path.write_text(
         "\n".join(
@@ -122,8 +123,11 @@ def test_xsf_datagrid_parses_first_grid(tmp_path: Path):
             ]
         )
     )
+    return path
 
-    volume = parse_xsf_volumetric_data(path)
+
+def test_xsf_datagrid_parses_first_grid(tmp_path: Path):
+    volume = parse_xsf_volumetric_data(_write_tiny_xsf_datagrid(tmp_path))
 
     assert volume.periodic is True
     assert volume.n_points == (2, 2, 2)
@@ -132,7 +136,7 @@ def test_xsf_datagrid_parses_first_grid(tmp_path: Path):
     np.testing.assert_allclose(volume.data.ravel(), np.arange(8))
 
 
-def test_vasp_volumetric_parser_reads_structure_and_grid(tmp_path: Path):
+def _write_tiny_chgcar(tmp_path: Path) -> Path:
     path = tmp_path / "CHGCAR"
     path.write_text(
         "\n".join(
@@ -153,6 +157,11 @@ def test_vasp_volumetric_parser_reads_structure_and_grid(tmp_path: Path):
             ]
         )
     )
+    return path
+
+
+def test_vasp_volumetric_parser_reads_structure_and_grid(tmp_path: Path):
+    path = _write_tiny_chgcar(tmp_path)
 
     assert _detect_filetype(str(path)) == "vasp-volumetric"
     volume = parse_vasp_volumetric_data(path)
@@ -162,6 +171,27 @@ def test_vasp_volumetric_parser_reads_structure_and_grid(tmp_path: Path):
     np.testing.assert_allclose(volume.molecule.lattice, np.eye(3) * 2.0)
     np.testing.assert_allclose(volume.axes, np.eye(3))
     np.testing.assert_allclose(volume.data.ravel(), np.arange(8))
+
+
+def test_vasp_volumetric_structure_matches_ase(tmp_path: Path):
+    pytest.importorskip("ase")
+    from ase.calculators.vasp import VaspChargeDensity
+
+    path = _write_tiny_chgcar(tmp_path)
+    volume = parse_vasp_volumetric_data(path)
+    ase_atoms = VaspChargeDensity(str(path)).atoms[0]
+
+    assert_molecule_matches_ase_atoms(volume.molecule, ase_atoms)
+
+
+def test_xsf_volumetric_structure_matches_ase(tmp_path: Path):
+    ase_io = pytest.importorskip("ase.io")
+
+    path = _write_tiny_xsf_datagrid(tmp_path)
+    volume = parse_xsf_volumetric_data(path)
+    ase_atoms = ase_io.read(path, format="xsf")
+
+    assert_molecule_matches_ase_atoms(volume.molecule, ase_atoms)
 
 
 def test_positive_volumetric_isovalue_defaults_and_slider_range_follow_data():

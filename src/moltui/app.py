@@ -1665,6 +1665,18 @@ def _cli_homo_mo_isosurfaces(orbital_data: OrbitalData) -> tuple[list[Isosurface
     return extract_isosurfaces(cube_data), current_mo
 
 
+def _prepare_cif_cli_session(filepath: str | Path) -> tuple[Molecule, str | None]:
+    import warnings as _warnings
+
+    from .parsers import CIFParseWarning, parse_cif
+
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always", CIFParseWarning)
+        molecule = parse_cif(filepath)
+    cif_warnings = [str(w.message) for w in caught if issubclass(w.category, CIFParseWarning)]
+    return molecule, "; ".join(cif_warnings) if cif_warnings else None
+
+
 def _prepare_trexio_cli_session(
     filepath: str | Path,
 ) -> tuple[Molecule, OrbitalData | None, list[IsosurfaceMesh], int, str | None]:
@@ -1847,18 +1859,7 @@ def run():
                 _prepare_trexio_cli_session(filepath)
             )
         elif filetype == "cif":
-            import warnings as _warnings
-
-            from .parsers import CIFParseWarning, parse_cif
-
-            with _warnings.catch_warnings(record=True) as caught:
-                _warnings.simplefilter("always", CIFParseWarning)
-                molecule = parse_cif(filepath)
-            cif_warnings = [
-                str(w.message) for w in caught if issubclass(w.category, CIFParseWarning)
-            ]
-            if cif_warnings:
-                trexio_toast = "; ".join(cif_warnings)
+            molecule, trexio_toast = _prepare_cif_cli_session(filepath)
         else:
             molecule = load_molecule(filepath)
 

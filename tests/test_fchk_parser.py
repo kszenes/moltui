@@ -50,6 +50,81 @@ def fchk_module():
     return pytest.importorskip("moltui.fchk")
 
 
+def _fchk_scalar(label: str, type_code: str, value: int | float) -> str:
+    if type_code == "I":
+        return f"{label:<40}   {type_code}   {value:12d}\n"
+    return f"{label:<40}   {type_code}   {value:16.8E}\n"
+
+
+def _fchk_array(label: str, type_code: str, values: list[int] | np.ndarray) -> str:
+    arr = np.asarray(values)
+    lines = [f"{label:<40}   {type_code}   N={arr.size:12d}\n"]
+    per_line = 6 if type_code == "I" else 5
+    for start in range(0, arr.size, per_line):
+        chunk = arr[start : start + per_line]
+        if type_code == "I":
+            lines.append("".join(f"{int(v):12d}" for v in chunk) + "\n")
+        else:
+            lines.append("".join(f"{float(v):16.8E}" for v in chunk) + "\n")
+    return "".join(lines)
+
+
+def _write_minimal_d_shell_fchk(
+    path: Path,
+    *,
+    shell_type: int,
+    n_alpha: int = 0,
+    n_beta: int = 0,
+    include_pure_flags: bool = False,
+) -> None:
+    """Write a tiny one-atom fchk with a single d shell and identity MOs."""
+    nbasis = 5 if shell_type < 0 else 6
+    nmo = nbasis
+    mo_coeff = np.eye(nbasis).reshape(-1)
+    text = "test\nSP HF/STO-3G\n"
+    text += _fchk_scalar("Number of atoms", "I", 1)
+    text += _fchk_scalar("Number of alpha electrons", "I", n_alpha)
+    text += _fchk_scalar("Number of beta electrons", "I", n_beta)
+    text += _fchk_scalar("Number of basis functions", "I", nbasis)
+    if include_pure_flags:
+        text += _fchk_scalar("Pure/Cartesian d shells", "I", 0 if shell_type < 0 else 1)
+        text += _fchk_scalar("Pure/Cartesian f shells", "I", 0)
+    text += _fchk_array("Atomic numbers", "I", [8])
+    text += _fchk_array("Current cartesian coordinates", "R", [0.0, 0.0, 0.0])
+    text += _fchk_array("Shell types", "I", [shell_type])
+    text += _fchk_array("Number of primitives per shell", "I", [1])
+    text += _fchk_array("Shell to atom map", "I", [1])
+    text += _fchk_array("Primitive exponents", "R", [1.0])
+    text += _fchk_array("Contraction coefficients", "R", [1.0])
+    text += _fchk_array("Alpha Orbital Energies", "R", np.arange(nmo, dtype=float))
+    text += _fchk_array("Alpha MO coefficients", "R", mo_coeff)
+    path.write_text(text)
+
+
+@pytest.mark.parametrize(("shell_type", "expected_spherical"), [(-2, True), (2, False)])
+def test_missing_pure_cartesian_flags_are_inferred_from_shell_types(
+    tmp_path: Path, fchk_module, shell_type: int, expected_spherical: bool
+) -> None:
+    path = tmp_path / "missing-pure-flags.fchk"
+    _write_minimal_d_shell_fchk(path, shell_type=shell_type)
+
+    basis = fchk_module.parse_fchk(path)
+
+    assert basis.spherical[2] is expected_spherical
+    assert basis.mo_coefficients.shape[0] == (5 if expected_spherical else 6)
+
+
+def test_restricted_open_shell_occupations_are_doubly_then_singly_occupied(
+    tmp_path: Path, fchk_module
+) -> None:
+    path = tmp_path / "rohf.fchk"
+    _write_minimal_d_shell_fchk(path, shell_type=-2, n_alpha=5, n_beta=4, include_pure_flags=True)
+
+    basis = fchk_module.parse_fchk(path)
+
+    np.testing.assert_array_equal(basis.mo_occupations, [2.0, 2.0, 2.0, 2.0, 1.0])
+
+
 @pytest.mark.parametrize("stem", PAIRS)
 def test_geometry_matches_molden(stem: str, fchk_module) -> None:
     from moltui.molden import load_molden_data

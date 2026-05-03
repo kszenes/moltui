@@ -108,6 +108,14 @@ def _require_scalar(sections: dict[str, _Section], label: str) -> int | float:
     return sec.scalar
 
 
+def _optional_scalar(sections: dict[str, _Section], label: str) -> int | float | None:
+    sec = sections.get(label)
+    if sec is None or sec.scalar is None:
+        return None
+    assert isinstance(sec.scalar, (int, float))
+    return sec.scalar
+
+
 def parse_fchk_atoms(filepath: str | Path) -> Molecule:
     """Read just the geometry from a Gaussian fchk file."""
     sections = _read_sections(Path(filepath))
@@ -213,12 +221,27 @@ def parse_fchk(filepath: str | Path) -> GtoBasis:
         atom_coords,
     )
 
-    # Pure vs Cartesian per angular momentum. Gaussian uses 0 → pure (spherical),
-    # nonzero → Cartesian. Default to pure when the field is absent (matches
-    # Gaussian's default for d/f when not stated).
-    pure_d = int(_require_scalar(sections, "Pure/Cartesian d shells")) == 0
-    pure_f = int(_require_scalar(sections, "Pure/Cartesian f shells")) == 0
-    spherical = {2: pure_d, 3: pure_f, 4: pure_f}
+    # Pure vs Cartesian per angular momentum. Gaussian's shell type sign is the
+    # most direct per-shell source: negative high-l shell types are pure
+    # (spherical), positive ones are Cartesian. Some fchk files omit the legacy
+    # ``Pure/Cartesian d/f shells`` scalar flags entirely, so use them only as a
+    # fallback when a given angular momentum is not present in ``Shell types``.
+    spherical: dict[int, bool] = {}
+    pure_d_flag = _optional_scalar(sections, "Pure/Cartesian d shells")
+    pure_f_flag = _optional_scalar(sections, "Pure/Cartesian f shells")
+    if pure_d_flag is not None:
+        spherical[2] = int(pure_d_flag) == 0
+    if pure_f_flag is not None:
+        pure_f = int(pure_f_flag) == 0
+        spherical[3] = pure_f
+        spherical[4] = pure_f
+    for s_type in shell_types:
+        l = abs(int(s_type))
+        if l >= 2:
+            spherical[l] = int(s_type) < 0
+    spherical.setdefault(2, True)
+    spherical.setdefault(3, True)
+    spherical.setdefault(4, True)
 
     # --- MOs -----------------------------------------------------------------
     nbasis = int(_require_scalar(sections, "Number of basis functions"))
@@ -250,9 +273,13 @@ def parse_fchk(filepath: str | Path) -> GtoBasis:
         mo_energies = alpha_e
         mo_coef = alpha_coef
         mo_spins = ["Alpha"] * n_alpha
-        # RHF: doubly-occupied up to n_alpha (== n_beta).
+        # Restricted closed-shell or open-shell: alpha-occupied orbitals carry
+        # one electron, beta-occupied orbitals carry the second one. This yields
+        # [2, ..., 2, 1, ..., 1, 0, ...] for ROHF instead of marking all alpha
+        # orbitals as singly occupied.
         occ = np.zeros(n_alpha)
-        occ[:n_alpha_occ] = 2.0 if n_alpha_occ == n_beta_occ else 1.0
+        occ[:n_alpha_occ] = 1.0
+        occ[:n_beta_occ] += 1.0
         mo_occupations = occ
 
     # --- Normal modes -------------------------------------------------------

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/kszenes/moltui/compare/v0.5.1...v0.5.2) (2026-05-03)
+
+
+### Bug Fixes
+
+* bugfixes in fchk parsing ([#20](https://github.com/kszenes/moltui/issues/20)) ([2d6becd](https://github.com/kszenes/moltui/commit/2d6becd1fecae204edb1e221b7d34e95ff236a34))
+
 ## [v0.5.1] 2025-05-02
 
 - Add geometry-only parsing for QC input files from Orca, Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, and Jaguar (as suggested by [scohenjanes5](https://github.com/scohenjanes5) in [#9](https://github.com/kszenes/moltui/issues/9) and implemented for Gaussian in [#15](https://github.com/kszenes/moltui/pull/15))

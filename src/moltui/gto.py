@@ -78,6 +78,82 @@ def _n_components(l: int, spherical: bool) -> int:
     return 2 * l + 1 if spherical else (l + 1) * (l + 2) // 2
 
 
+_MOLDEN_CARTESIAN_LABELS = {
+    0: ["1"],
+    1: ["x", "y", "z"],
+    2: ["xx", "yy", "zz", "xy", "xz", "yz"],
+    3: ["xxx", "yyy", "zzz", "xyy", "xxy", "xxz", "xzz", "yzz", "yyz", "xyz"],
+    4: [
+        "xxxx",
+        "yyyy",
+        "zzzz",
+        "xxxy",
+        "xxxz",
+        "xyyy",
+        "yyyz",
+        "xzzz",
+        "yzzz",
+        "xxyy",
+        "xxzz",
+        "yyzz",
+        "xxyz",
+        "xyyz",
+        "xyzz",
+    ],
+}
+
+
+def gaussian_cartesian_component_labels(l: int) -> list[str]:
+    """Cartesian AO labels in Gaussian fchk/IODATA convention.
+
+    Gaussian uses the Molden-style order for s through f Cartesian shells. For g
+    and above, IODATA's fchk convention enumerates monomials with increasing x
+    power, then increasing y power, and the remaining power on z.
+    """
+    if l < 0:
+        raise ValueError("Angular momentum must be non-negative")
+    if l <= 3:
+        return list(_MOLDEN_CARTESIAN_LABELS[l])
+
+    labels: list[str] = []
+    for nx in range(l + 1):
+        for ny in range(l - nx + 1):
+            nz = l - nx - ny
+            labels.append("x" * nx + "y" * ny + "z" * nz)
+    return labels
+
+
+def molden_cartesian_component_labels(l: int) -> list[str]:
+    """Cartesian AO labels in MolTUI's evaluator/Molden convention.
+
+    The Molden format documents Cartesian shells through g. For higher angular
+    momenta there is no official Molden order, so we use the Gaussian/IODATA
+    fchk order as a deterministic extension.
+    """
+    if l < 0:
+        raise ValueError("Angular momentum must be non-negative")
+    if l in _MOLDEN_CARTESIAN_LABELS:
+        return list(_MOLDEN_CARTESIAN_LABELS[l])
+    return gaussian_cartesian_component_labels(l)
+
+
+def component_permutation(source_labels: list[str], target_labels: list[str]) -> list[int]:
+    """Return indices that reorder components from source order to target order."""
+    if sorted(source_labels) != sorted(target_labels):
+        raise ValueError("Source and target component labels do not contain the same labels")
+    return [source_labels.index(label) for label in target_labels]
+
+
+def pure_spherical_component_labels(l: int) -> list[str]:
+    """Pure/spherical AO labels in IODATA's ``c0, c1, s1, ...`` order."""
+    if l < 0:
+        raise ValueError("Angular momentum must be non-negative")
+    labels = ["c0"]
+    for m in range(1, l + 1):
+        labels.extend([f"c{m}", f"s{m}"])
+    return labels
+
+
 def parse_molden(filepath: str | Path) -> GtoBasis:
     """Parse a Molden file into a :class:`GtoBasis`."""
     filepath = Path(filepath)
@@ -409,57 +485,32 @@ def real_solid_harmonics(
     raise NotImplementedError(f"Angular momentum l={l} not implemented")
 
 
+def _cartesian_monomial(label: str, dx: np.ndarray, dy: np.ndarray, dz: np.ndarray) -> np.ndarray:
+    if label == "1":
+        return np.ones_like(dx)
+    value = np.ones_like(dx)
+    nx = label.count("x")
+    ny = label.count("y")
+    nz = label.count("z")
+    if nx:
+        value = value * dx**nx
+    if ny:
+        value = value * dy**ny
+    if nz:
+        value = value * dz**nz
+    return value
+
+
 def cartesian_harmonics(l: int, dx: np.ndarray, dy: np.ndarray, dz: np.ndarray) -> list[np.ndarray]:
-    """Return cartesian harmonic monomials in Molden's documented order."""
-    if l == 0:
-        return [np.ones_like(dx)]
+    """Return Cartesian harmonic monomials in MolTUI/Molden order.
 
-    if l == 1:
-        return [dx, dy, dz]
-
-    if l == 2:
-        return [dx * dx, dy * dy, dz * dz, dx * dy, dx * dz, dy * dz]
-
-    if l == 3:
-        xx = dx * dx
-        yy = dy * dy
-        zz = dz * dz
-        return [
-            xx * dx,  # xxx
-            yy * dy,  # yyy
-            zz * dz,  # zzz
-            dx * yy,  # xyy
-            xx * dy,  # xxy
-            xx * dz,  # xxz
-            dx * zz,  # xzz
-            dy * zz,  # yzz
-            yy * dz,  # yyz
-            dx * dy * dz,  # xyz
-        ]
-
-    if l == 4:
-        xx = dx * dx
-        yy = dy * dy
-        zz = dz * dz
-        return [
-            xx * xx,  # xxxx
-            yy * yy,  # yyyy
-            zz * zz,  # zzzz
-            xx * dx * dy,  # xxxy
-            xx * dx * dz,  # xxxz
-            yy * dy * dx,  # yyyx
-            yy * dy * dz,  # yyyz
-            zz * dz * dx,  # zzzx
-            zz * dz * dy,  # zzzy
-            xx * yy,  # xxyy
-            xx * zz,  # xxzz
-            yy * zz,  # yyzz
-            xx * dy * dz,  # xxyz
-            yy * dx * dz,  # yyxz
-            zz * dx * dy,  # zzxy
-        ]
-
-    raise NotImplementedError(f"Cartesian harmonics for l={l} not implemented")
+    Molden documents Cartesian order through g shells. For h and above we use
+    Gaussian/IODATA's fchk order, which gives deterministic arbitrary-l support
+    for Cartesian shells.
+    """
+    return [
+        _cartesian_monomial(label, dx, dy, dz) for label in molden_cartesian_component_labels(l)
+    ]
 
 
 # ---------------------------------------------------------------------------

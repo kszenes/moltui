@@ -16,7 +16,14 @@ from pathlib import Path
 import numpy as np
 
 from .elements import Atom, Molecule, get_element, get_element_by_number
-from .gto import BOHR_TO_ANGSTROM, GtoBasis, PrimShell
+from .gto import (
+    BOHR_TO_ANGSTROM,
+    GtoBasis,
+    PrimShell,
+    component_permutation,
+    gaussian_cartesian_component_labels,
+    molden_cartesian_component_labels,
+)
 from .molden import OrbitalData
 
 
@@ -133,6 +140,32 @@ def parse_fchk_atoms(filepath: str | Path) -> Molecule:
     mol = Molecule(atoms=atoms, bonds=[])
     mol.detect_bonds()
     return mol
+
+
+def _fchk_to_moltui_ao_permutation(shell_types: np.ndarray) -> np.ndarray:
+    """Return row indices mapping fchk AO order to MolTUI evaluator order."""
+    perm: list[int] = []
+    offset = 0
+    for s_type_raw in shell_types:
+        s_type = int(s_type_raw)
+        if s_type == -1:
+            # Gaussian SP shells are stored as S, Px, Py, Pz. We split them into
+            # adjacent S and P shells in the same component order.
+            perm.extend(range(offset, offset + 4))
+            offset += 4
+            continue
+
+        l = abs(s_type)
+        spherical = s_type < 0 and l >= 2
+        if spherical:
+            n_ao = 2 * l + 1
+            perm.extend(range(offset, offset + n_ao))
+        else:
+            fchk_labels = gaussian_cartesian_component_labels(l)
+            moltui_labels = molden_cartesian_component_labels(l)
+            perm.extend(offset + idx for idx in component_permutation(fchk_labels, moltui_labels))
+        offset += (2 * l + 1) if spherical else (l + 1) * (l + 2) // 2
+    return np.array(perm, dtype=np.int64)
 
 
 def _build_shells(
@@ -253,12 +286,17 @@ def parse_fchk(filepath: str | Path) -> GtoBasis:
     # fchk stores MOs row-major: MO 1 (nbasis values), MO 2, ... — so reshape
     # as (nmo, nbasis) and transpose to the (nao, nmo) layout used downstream.
     alpha_coef = alpha_c.reshape(n_alpha, nbasis).T
+    ao_perm = _fchk_to_moltui_ao_permutation(shell_types)
+    if ao_perm.shape[0] != nbasis:
+        raise ValueError("fchk shell AO count does not match Number of basis functions")
+    alpha_coef = alpha_coef[ao_perm, :]
 
     beta_sec = sections.get("Beta MO coefficients")
     if beta_sec is not None and beta_sec.array is not None:
         beta_e = _require_array(sections, "Beta Orbital Energies")
         n_beta = beta_e.shape[0]
         beta_coef = beta_sec.array.reshape(n_beta, nbasis).T
+        beta_coef = beta_coef[ao_perm, :]
         mo_energies = np.concatenate([alpha_e, beta_e])
         mo_coef = np.concatenate([alpha_coef, beta_coef], axis=1)
         mo_spins = ["Alpha"] * n_alpha + ["Beta"] * n_beta

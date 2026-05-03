@@ -17,7 +17,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from moltui.gto import eval_gto, prepare_gto_cache
+from moltui.gto import (
+    component_permutation,
+    eval_gto,
+    gaussian_cartesian_component_labels,
+    molden_cartesian_component_labels,
+    prepare_gto_cache,
+    pure_spherical_component_labels,
+)
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "gaussian"
 
@@ -69,18 +76,28 @@ def _fchk_array(label: str, type_code: str, values: list[int] | np.ndarray) -> s
     return "".join(lines)
 
 
-def _write_minimal_d_shell_fchk(
+def _shell_nbasis(shell_type: int) -> int:
+    l = abs(shell_type)
+    return 2 * l + 1 if shell_type < 0 else (l + 1) * (l + 2) // 2
+
+
+def _write_minimal_shell_fchk(
     path: Path,
     *,
     shell_type: int,
     n_alpha: int = 0,
     n_beta: int = 0,
     include_pure_flags: bool = False,
+    mo_coefficients: np.ndarray | None = None,
 ) -> None:
-    """Write a tiny one-atom fchk with a single d shell and identity MOs."""
-    nbasis = 5 if shell_type < 0 else 6
+    """Write a tiny one-atom fchk with a single shell."""
+    nbasis = _shell_nbasis(shell_type)
     nmo = nbasis
-    mo_coeff = np.eye(nbasis).reshape(-1)
+    if mo_coefficients is None:
+        mo_coefficients = np.eye(nbasis)
+    # fchk stores MO-major coefficients; tests pass coefficients in AO-major
+    # shape (nbasis, nmo), matching the parser's post-reshape layout.
+    mo_coeff = mo_coefficients.T.reshape(-1)
     text = "test\nSP HF/STO-3G\n"
     text += _fchk_scalar("Number of atoms", "I", 1)
     text += _fchk_scalar("Number of alpha electrons", "I", n_alpha)
@@ -106,7 +123,7 @@ def test_missing_pure_cartesian_flags_are_inferred_from_shell_types(
     tmp_path: Path, fchk_module, shell_type: int, expected_spherical: bool
 ) -> None:
     path = tmp_path / "missing-pure-flags.fchk"
-    _write_minimal_d_shell_fchk(path, shell_type=shell_type)
+    _write_minimal_shell_fchk(path, shell_type=shell_type)
 
     basis = fchk_module.parse_fchk(path)
 
@@ -118,11 +135,76 @@ def test_restricted_open_shell_occupations_are_doubly_then_singly_occupied(
     tmp_path: Path, fchk_module
 ) -> None:
     path = tmp_path / "rohf.fchk"
-    _write_minimal_d_shell_fchk(path, shell_type=-2, n_alpha=5, n_beta=4, include_pure_flags=True)
+    _write_minimal_shell_fchk(path, shell_type=-2, n_alpha=5, n_beta=4, include_pure_flags=True)
 
     basis = fchk_module.parse_fchk(path)
 
     np.testing.assert_array_equal(basis.mo_occupations, [2.0, 2.0, 2.0, 2.0, 1.0])
+
+
+def test_cartesian_component_labels_match_iodata_fchk_convention() -> None:
+    assert gaussian_cartesian_component_labels(4) == [
+        "zzzz",
+        "yzzz",
+        "yyzz",
+        "yyyz",
+        "yyyy",
+        "xzzz",
+        "xyzz",
+        "xyyz",
+        "xyyy",
+        "xxzz",
+        "xxyz",
+        "xxyy",
+        "xxxz",
+        "xxxy",
+        "xxxx",
+    ]
+    assert gaussian_cartesian_component_labels(5)[:6] == [
+        "zzzzz",
+        "yzzzz",
+        "yyzzz",
+        "yyyzz",
+        "yyyyz",
+        "yyyyy",
+    ]
+    assert len(gaussian_cartesian_component_labels(9)) == 55
+    assert pure_spherical_component_labels(9) == [
+        "c0",
+        "c1",
+        "s1",
+        "c2",
+        "s2",
+        "c3",
+        "s3",
+        "c4",
+        "s4",
+        "c5",
+        "s5",
+        "c6",
+        "s6",
+        "c7",
+        "s7",
+        "c8",
+        "s8",
+        "c9",
+        "s9",
+    ]
+
+
+def test_fchk_cartesian_g_coefficients_are_reordered_to_moltui_convention(
+    tmp_path: Path, fchk_module
+) -> None:
+    path = tmp_path / "cartesian-g.fchk"
+    fchk_labels = gaussian_cartesian_component_labels(4)
+    moltui_labels = molden_cartesian_component_labels(4)
+    coeff = np.eye(len(fchk_labels))
+    _write_minimal_shell_fchk(path, shell_type=4, include_pure_flags=True, mo_coefficients=coeff)
+
+    basis = fchk_module.parse_fchk(path)
+
+    expected_rows = component_permutation(fchk_labels, moltui_labels)
+    np.testing.assert_array_equal(basis.mo_coefficients, coeff[expected_rows, :])
 
 
 @pytest.mark.parametrize("stem", PAIRS)

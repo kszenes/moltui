@@ -109,7 +109,7 @@ async def test_b_toggle_refreshes_periodic_geometry_panel(
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app._display_geometry is not None
-        assert len(app._display_geometry.molecule.bonds) == 36
+        assert len(app._display_geometry.molecule.bonds) == 6
 
         await pilot.press("b")
         await pilot.pause()
@@ -119,7 +119,7 @@ async def test_b_toggle_refreshes_periodic_geometry_panel(
         await pilot.press("b")
         await pilot.pause()
         assert app._display_geometry is not None
-        assert len(app._display_geometry.molecule.bonds) == 36
+        assert len(app._display_geometry.molecule.bonds) == 6
 
 
 @pytest.mark.asyncio

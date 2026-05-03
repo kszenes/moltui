@@ -68,7 +68,7 @@ def test_build_view_render_scene_includes_periodic_ghosts_for_export_path():
 
     render_mol, isos, show_cell = _build_view_render_scene(view)
 
-    assert len(render_mol.bonds) == 36
+    assert len(render_mol.bonds) == 6
     assert isos is None
     assert show_cell is True
 

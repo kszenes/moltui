@@ -5,11 +5,10 @@ from pathlib import Path
 import numpy as np
 
 from moltui.elements import Atom, Molecule, get_element, get_element_by_number
+from moltui.parsers import VolumetricData
 
 
-def parse_xsf(filepath: str | Path) -> Molecule:
-    """Parse an XSF structure containing PRIMVEC and PRIMCOORD blocks."""
-    lines = Path(filepath).read_text().splitlines()
+def _parse_structure_lines(lines: list[str]) -> Molecule:
     lattice: np.ndarray | None = None
     atoms: list[Atom] = []
     i = 0
@@ -61,3 +60,56 @@ def parse_xsf(filepath: str | Path) -> Molecule:
     mol = Molecule(atoms=atoms, bonds=[], lattice=lattice)
     mol.detect_bonds_auto()
     return mol
+
+
+def parse_xsf(filepath: str | Path) -> Molecule:
+    """Parse an XSF structure containing PRIMVEC and PRIMCOORD blocks."""
+    return _parse_structure_lines(Path(filepath).read_text().splitlines())
+
+
+def parse_xsf_volumetric_data(filepath: str | Path) -> VolumetricData:
+    """Parse the first XSF 3D datagrid along with the structure."""
+    lines = Path(filepath).read_text().splitlines()
+    molecule = _parse_structure_lines(lines)
+
+    i = 0
+    while i < len(lines):
+        upper = lines[i].strip().upper()
+        if upper.startswith("DATAGRID_3D") or upper.startswith("BEGIN_DATAGRID_3D"):
+            if i + 5 >= len(lines):
+                raise ValueError("XSF DATAGRID_3D block is incomplete")
+            try:
+                n_points = tuple(int(tok) for tok in lines[i + 1].split()[:3])
+                if len(n_points) != 3:
+                    raise ValueError
+                origin = np.array([float(tok) for tok in lines[i + 2].split()[:3]])
+                spans = np.array(
+                    [[float(tok) for tok in lines[i + j].split()[:3]] for j in range(3, 6)],
+                    dtype=np.float64,
+                )
+            except ValueError as exc:
+                raise ValueError("Invalid XSF DATAGRID_3D header") from exc
+
+            n_values = n_points[0] * n_points[1] * n_points[2]
+            values: list[float] = []
+            j = i + 6
+            while j < len(lines) and len(values) < n_values:
+                stripped = lines[j].strip()
+                if stripped and not stripped.upper().startswith("END_DATAGRID_3D"):
+                    values.extend(float(tok) for tok in stripped.split())
+                j += 1
+            if len(values) < n_values:
+                raise ValueError("XSF DATAGRID_3D ended before all scalar values were read")
+            data = np.array(values[:n_values], dtype=np.float64).reshape(n_points)
+            axes = np.array([spans[k] / max(n_points[k] - 1, 1) for k in range(3)])
+            return VolumetricData(
+                molecule=molecule,
+                origin=origin,
+                axes=axes,
+                n_points=n_points,  # type: ignore[arg-type]
+                data=data,
+                periodic=molecule.lattice is not None,
+            )
+        i += 1
+
+    raise ValueError("No XSF DATAGRID_3D block found")

@@ -49,6 +49,13 @@ class TestDetectFiletype:
         path.write_text("CRYSTAL\n")
         assert _detect_filetype(str(path)) == "xsf"
 
+    @pytest.mark.parametrize("name", ["CHG", "CHGCAR", "PARCHG", "LOCPOT", "ELFCAR"])
+    def test_vasp_volumetric_by_canonical_name(self, tmp_path: Path, name: str):
+        path = tmp_path / name
+        path.write_text("not read for filetype detection\n")
+
+        assert _detect_filetype(str(path)) == "vasp-volumetric"
+
     def test_cube_detected(self, tmp_path: Path):
         path = tmp_path / "sample.cube"
         path.write_text("comment 1\ncomment 2\n2 0.0 0.0 0.0\n")

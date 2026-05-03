@@ -29,9 +29,12 @@ from .mo_panel import MOPanel
 from .normal_mode_panel import NormalModePanel
 from .parsers import (
     CubeData,
+    VolumetricData,
     load_molecule,
     parse_cube_data,
     parse_orca_hess_data,
+    parse_vasp_volumetric_data,
+    parse_xsf_volumetric_data,
     parse_xyz_trajectory,
 )
 from .visual_panel import Slider, Toggle, VisualPanel
@@ -128,6 +131,17 @@ def _build_view_render_scene(
     return mol, isos, view.show_cell
 
 
+def _default_volume_isovalue(volume: CubeData | VolumetricData) -> float:
+    data = volume.data
+    data_min = float(np.nanmin(data))
+    data_max = float(np.nanmax(data))
+    if data_min <= 0.05 <= data_max:
+        return 0.05
+    if data_min >= 0.0:
+        return 0.5 * (data_min + data_max)
+    return 0.25 * max(abs(data_min), abs(data_max))
+
+
 def _compute_mo_isosurfaces(
     orbital_data,
     mo_idx: int,
@@ -144,7 +158,7 @@ def _compute_parent_indices(base: Molecule, augmented: Molecule) -> list[int]:
     """Map each augmented atom back to its originating in-cell atom index."""
     if base.lattice is None:
         return list(range(len(augmented.atoms)))
-    inv = np.linalg.inv(base.lattice)
+    inv = np.linalg.pinv(base.lattice)
     ref = np.array([a.position @ inv for a in base.atoms], dtype=np.float64)
     ref_mod = ref - np.floor(ref + 1e-6)
     parents: list[int] = []
@@ -486,6 +500,7 @@ class MoltuiApp(App):
         current_mo: int = 0,
         trajectory_data: TrajectoryData | None = None,
         normal_mode_data: NormalModeData | None = None,
+        isovalue: float = 0.05,
     ):
         super().__init__()
         self.molecule = molecule
@@ -495,7 +510,8 @@ class MoltuiApp(App):
         self.orbital_data = orbital_data
         self.current_mo = current_mo
         self._cube_data: CubeData | None = None
-        self.isovalue: float = 0.05
+        self._volumetric_data: CubeData | VolumetricData | None = None
+        self.isovalue: float = isovalue
         self._mo_switch_timer = None
         self._mo_pending = False
         self._mo_switch_task: asyncio.Task[None] | None = None
@@ -720,7 +736,7 @@ class MoltuiApp(App):
             atom_scale=view.atom_scale,
             bond_radius=view.bond_radius,
             isovalue=self.isovalue,
-            has_isosurfaces=bool(self._isosurfaces),
+            has_isosurfaces=bool(self._isosurfaces) or self._volumetric_data is not None,
             has_normal_modes=self._has_normal_modes,
             has_trajectory=self._has_trajectory,
             vibrational_phase_step=self.normal_mode_data.phase_step
@@ -729,7 +745,27 @@ class MoltuiApp(App):
             trajectory_fps=1.0 / self._playback_interval_sec,
             has_lattice=view.molecule is not None and view.molecule.lattice is not None,
             show_cell=view.show_cell,
+            isovalue_min=self._isovalue_range()[0],
+            isovalue_max=self._isovalue_range()[1],
+            isovalue_step=self._isovalue_range()[2],
         )
+
+    def _isovalue_range(self) -> tuple[float, float, float]:
+        if self._volumetric_data is None:
+            return (0.001, 0.10, 0.005)
+        data = self._volumetric_data.data
+        data_min = float(np.nanmin(data))
+        data_max = float(np.nanmax(data))
+        if data_min >= 0.0:
+            span = max(data_max - data_min, 1e-6)
+            return (data_min, data_max, span / 100.0)
+        if data_max <= 0.0:
+            min_abs = abs(data_max)
+            max_abs = abs(data_min)
+            span = max(max_abs - min_abs, 1e-6)
+            return (min_abs, max_abs, span / 100.0)
+        max_abs = max(abs(data_min), abs(data_max), 0.1)
+        return (0.001, max_abs, max_abs / 100.0)
 
     def _has_animation(self) -> bool:
         if self._view_mode == _VIEW_GEOMETRY:
@@ -1286,7 +1322,7 @@ class MoltuiApp(App):
             panel = self.query_one(GeometryPanel)
             if not self._panel_hidden:
                 panel.add_class("visible")
-            view.show_orbitals = False
+            view.show_orbitals = self._volumetric_data is not None
             if not self._panel_hidden:
                 self._focus_panel_table(panel, panel._emit_current_highlight)
         elif mode == _VIEW_MO:
@@ -1366,8 +1402,8 @@ class MoltuiApp(App):
 
     def on_visual_panel_isovalue_changed(self, event: VisualPanel.IsovalueChanged) -> None:
         self.isovalue = event.isovalue
-        if self._cube_data is not None:
-            self._isosurfaces = extract_isosurfaces(self._cube_data, isovalue=self.isovalue)
+        if self._volumetric_data is not None:
+            self._isosurfaces = extract_isosurfaces(self._volumetric_data, isovalue=self.isovalue)
             view = self.query_one(MoleculeView)
             view.isosurfaces = self._isosurfaces
             view._invalidate_cache()
@@ -1521,6 +1557,8 @@ def _detect_filetype(filepath: str) -> str:
         return "xyz"
     if suffix == ".cif":
         return "cif"
+    if name_lower in ("chg", "chgcar", "parchg", "locpot", "elfcar"):
+        return "vasp-volumetric"
     if path.name.lower() in ("poscar", "contcar") or suffix in (".vasp", ".poscar"):
         return "poscar"
     if suffix == ".xsf":
@@ -1569,8 +1607,9 @@ def _detect_filetype(filepath: str) -> str:
         return "cube"
     raise ValueError(
         f"Unsupported file format: {filepath!s}. "
-        "Supported formats: .xyz, .extxyz, .cif, POSCAR/CONTCAR/.vasp, .xsf, "
-        ".cube, .molden, .fchk, .hess, .zmat, .gbw, .h5/.hdf5/.trexio "
+        "Supported formats: .xyz, .extxyz, .cif, POSCAR/CONTCAR/.vasp, "
+        "CHG/CHGCAR/PARCHG/LOCPOT/ELFCAR, .xsf, .cube, .molden, .fchk, "
+        ".hess, .zmat, .gbw, .h5/.hdf5/.trexio "
         "(TREXIO), and QC inputs from "
         "Orca, Molcas, Q-Chem, Gaussian, NWChem, Turbomole, Molpro, MRCC, "
         "CFOUR, Psi4, GAMESS, and Jaguar."
@@ -1664,6 +1703,11 @@ def run():
             'or TREXIO .h5/.hdf5/.trexio; optional: pip install "moltui[trexio]")'
         ),
     )
+    parser.add_argument(
+        "--periodic",
+        action="store_true",
+        help="treat cube grid axes as periodic cell axes",
+    )
     parsed = parser.parse_args()
 
     filepath = parsed.file
@@ -1697,11 +1741,33 @@ def run():
     try:
         trexio_toast: str | None = None
         cube_data_for_app: CubeData | None = None
+        volumetric_data_for_app: CubeData | VolumetricData | None = None
+        initial_isovalue = 0.05
         if filetype == "cube":
-            cube_data = parse_cube_data(filepath)
+            cube_data = parse_cube_data(filepath, periodic=parsed.periodic)
+            initial_isovalue = _default_volume_isovalue(cube_data)
             molecule = cube_data.molecule
-            isosurfaces = extract_isosurfaces(cube_data)
+            isosurfaces = extract_isosurfaces(cube_data, isovalue=initial_isovalue)
             cube_data_for_app = cube_data
+            volumetric_data_for_app = cube_data
+        elif filetype == "vasp-volumetric":
+            volume = parse_vasp_volumetric_data(filepath)
+            initial_isovalue = _default_volume_isovalue(volume)
+            molecule = volume.molecule
+            isosurfaces = extract_isosurfaces(volume, isovalue=initial_isovalue)
+            volumetric_data_for_app = volume
+        elif filetype == "xsf":
+            try:
+                volume = parse_xsf_volumetric_data(filepath)
+            except ValueError as exc:
+                if "DATAGRID_3D" not in str(exc):
+                    raise
+                molecule = load_molecule(filepath)
+            else:
+                initial_isovalue = _default_volume_isovalue(volume)
+                molecule = volume.molecule
+                isosurfaces = extract_isosurfaces(volume, isovalue=initial_isovalue)
+                volumetric_data_for_app = volume
         elif filetype == "molden":
             from .molden import load_molden_data
 
@@ -1804,8 +1870,10 @@ def run():
             current_mo=current_mo,
             trajectory_data=trajectory_data,
             normal_mode_data=normal_mode_data,
+            isovalue=initial_isovalue,
         )
         app._cube_data = cube_data_for_app
+        app._volumetric_data = volumetric_data_for_app
         if filetype in ("trexio", "cif"):
             app._startup_toast = trexio_toast
         app.run()

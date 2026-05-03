@@ -276,53 +276,52 @@ class Molecule:
     def with_bonded_periodic_images(
         self, tol: float = 1e-3, bond_tolerance: float = 1.3
     ) -> "Molecule":
-        """Return a copy that also includes periodic-image atoms bonded across cell faces.
+        """Return a copy with ghost atoms needed to draw periodic bonds.
 
-        Extends :meth:`with_periodic_images` (boundary replicas) with images of
-        any atom within bonding distance of an in-cell atom along any of the
-        26 neighboring cell shifts. The image atoms appear as "ghosts" that
-        keep boundary-crossing bonds visible.
+        The original atoms remain in their input positions. For each recorded
+        periodic bond, a single ghost image of the shifted ``j`` atom is added
+        and bonded to ``i``. This keeps crossing-cell bonds visible without
+        expanding every boundary atom into a cluster of neighboring cells.
         """
+        del tol, bond_tolerance  # kept for API compatibility
         if self.lattice is None or not self.atoms:
             return self
 
-        from itertools import product
+        if self.bond_shifts is None or len(self.bond_shifts) != len(self.bonds):
+            working = Molecule(
+                atoms=self.atoms,
+                bonds=list(self.bonds),
+                lattice=self.lattice,
+                pbc=self.pbc,
+            )
+            working.detect_bonds_periodic()
+        else:
+            working = self
 
-        base = self.with_periodic_images(tol=tol)
+        new_atoms: list[Atom] = list(working.atoms)
+        new_bonds: list[tuple[int, int]] = []
+        image_indices: dict[tuple[int, tuple[int, int, int]], int] = {}
 
-        existing: dict[tuple[int, int, int], int] = {}
-        new_atoms: list[Atom] = list(base.atoms)
-        for idx, atom in enumerate(new_atoms):
-            key = tuple(np.round(atom.position * 1000).astype(int).tolist())
-            existing[key] = idx  # type: ignore[assignment]
-
-        # Distance check against the full augmented set so boundary replicas
-        # also acquire their cross-cell bonded partners.
-        target_positions = np.array([a.position for a in new_atoms], dtype=np.float64)
-        target_radii = np.array([a.element.covalent_radius for a in new_atoms], dtype=np.float64)
-
-        pbc = self.pbc if self.pbc is not None else (True, True, True)
-        shift_ranges = [(-1, 0, 1) if periodic else (0,) for periodic in pbc]
-        for s0, s1, s2 in product(*shift_ranges):
-            if (s0, s1, s2) == (0, 0, 0):
+        assert working.bond_shifts is not None
+        for (i, j), shift in zip(working.bonds, working.bond_shifts, strict=True):
+            if shift == (0, 0, 0):
+                new_bonds.append((i, j))
                 continue
-            disp = s0 * self.lattice[0] + s1 * self.lattice[1] + s2 * self.lattice[2]
-            for atom_j in self.atoms:
-                shifted = atom_j.position + disp
-                deltas = target_positions - shifted
-                dist_sq = np.einsum("ij,ij->i", deltas, deltas)
-                max_bond = (target_radii + atom_j.element.covalent_radius) * bond_tolerance
-                if not np.any(dist_sq < max_bond * max_bond):
-                    continue
-                key = tuple(np.round(shifted * 1000).astype(int).tolist())
-                if key in existing:  # type: ignore[comparison-overlap]
-                    continue
-                existing[key] = len(new_atoms)  # type: ignore[assignment]
-                new_atoms.append(Atom(element=atom_j.element, position=shifted))
 
-        replicated = Molecule(atoms=new_atoms, bonds=[], lattice=self.lattice, pbc=self.pbc)
-        replicated.detect_bonds(tolerance=bond_tolerance)
-        return replicated
+            disp = (
+                shift[0] * self.lattice[0] + shift[1] * self.lattice[1] + shift[2] * self.lattice[2]
+            )
+
+            key = (j, shift)
+            image_idx = image_indices.get(key)
+            if image_idx is None:
+                atom = working.atoms[j]
+                image_idx = len(new_atoms)
+                image_indices[key] = image_idx
+                new_atoms.append(Atom(element=atom.element, position=atom.position + disp))
+            new_bonds.append((i, image_idx))
+
+        return Molecule(atoms=new_atoms, bonds=new_bonds, lattice=self.lattice, pbc=self.pbc)
 
     def with_periodic_images(self, tol: float = 1e-3) -> "Molecule":
         """Return a copy with atoms on cell boundaries replicated across faces.
@@ -338,7 +337,7 @@ class Molecule:
         from itertools import product
 
         positions = np.array([a.position for a in self.atoms], dtype=np.float64)
-        inv = np.linalg.inv(self.lattice)
+        inv = np.linalg.pinv(self.lattice)
         fracs = positions @ inv  # rows: fractional coords
 
         new_atoms: list[Atom] = []

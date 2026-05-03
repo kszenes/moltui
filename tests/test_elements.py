@@ -439,6 +439,32 @@ class TestPeriodicImages:
         assert mol.bonds == []
         assert {round(atom.position[2], 8) for atom in replicated.atoms} == {0.1, 3.9}
 
+    def test_bonded_ghost_atoms_are_limited_to_periodic_bond_partners(self):
+        S = get_element("S")
+        Zn = get_element("Zn")
+        lattice = np.array(
+            [
+                [2.71, 2.71, 0.0],
+                [2.71, 0.0, 2.71],
+                [0.0, 2.71, 2.71],
+            ]
+        )
+        mol = Molecule(
+            atoms=[
+                Atom(S, np.array([0.0, 0.0, 0.0])),
+                Atom(Zn, np.array([1.355, -1.355, -1.355])),
+            ],
+            bonds=[],
+            lattice=lattice,
+        )
+        mol.detect_bonds_periodic()
+
+        replicated = mol.with_bonded_periodic_images()
+
+        assert len(mol.bonds) == 4
+        assert len(replicated.atoms) == 5
+        assert len(replicated.bonds) == 4
+
     def test_interior_atom_unchanged(self):
         H = get_element("H")
         lattice = np.eye(3) * 4.0
@@ -483,13 +509,13 @@ class TestPeriodicImages:
         mol.detect_bonds_periodic()
 
         replicated = mol.with_bonded_periodic_images()
-        assert len(replicated.atoms) == 36
+        assert len(replicated.atoms) == 8
 
         degrees = [0] * len(replicated.atoms)
         for i, j in replicated.bonds:
             degrees[i] += 1
             degrees[j] += 1
-        assert all(degree == 3 for degree in degrees[:4])
+        assert degrees[:4] == [3, 1, 3, 1]
 
 
 class TestGeometryPanelLabels:

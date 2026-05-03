@@ -4,7 +4,7 @@ import numpy as np
 from scipy.ndimage import zoom
 from skimage.measure import marching_cubes
 
-from .parsers import BOHR_TO_ANGSTROM, CubeData
+from .parsers import CubeData, VolumetricData
 
 COLOR_POSITIVE = (255, 135, 0)  # orange
 COLOR_NEGATIVE = (30, 100, 255)  # blue
@@ -19,25 +19,25 @@ class IsosurfaceMesh:
 
 
 def extract_isosurfaces(
-    cube_data: CubeData,
+    cube_data: CubeData | VolumetricData,
     isovalue: float = 0.05,
     step: int = 1,
     upsample: int = 1,
 ) -> list[IsosurfaceMesh]:
-    data = cube_data.data[::step, ::step, ::step]
-    spacing_bohr = step * np.linalg.norm(cube_data.axes, axis=1)
+    volume = cube_data.to_volumetric_data() if isinstance(cube_data, CubeData) else cube_data
+    data = volume.data[::step, ::step, ::step]
+    axes = volume.axes * step
     if upsample > 1:
         data = zoom(data, upsample, order=3)
-        spacing_bohr = spacing_bohr / upsample
-    origin_ang = cube_data.origin * BOHR_TO_ANGSTROM
-    spacing_ang = spacing_bohr * BOHR_TO_ANGSTROM
+        axes = axes / upsample
 
     meshes = []
     for level, color in [(isovalue, COLOR_POSITIVE), (-isovalue, COLOR_NEGATIVE)]:
         if data.max() < level or data.min() > level:
             continue
-        verts, faces, normals, _ = marching_cubes(data, level, spacing=spacing_ang)
-        world_verts = origin_ang + verts
+        verts, faces, normals, _ = marching_cubes(data, level)
+        world_verts = volume.origin + verts @ axes
+        normals = normals @ np.linalg.pinv(axes)
         # Normalize normals
         norms = np.linalg.norm(normals, axis=1, keepdims=True)
         norms[norms < 1e-10] = 1.0

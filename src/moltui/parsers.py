@@ -16,12 +16,33 @@ BOHR_TO_ANGSTROM = 0.529177249
 
 
 @dataclass
+class VolumetricData:
+    molecule: Molecule
+    origin: np.ndarray  # (3,) in Angstrom
+    axes: np.ndarray  # (3, 3) grid step vectors in Angstrom
+    n_points: tuple[int, int, int]
+    data: np.ndarray  # (n1, n2, n3) volumetric data
+    periodic: bool | tuple[bool, bool, bool] = False
+
+
+@dataclass
 class CubeData:
     molecule: Molecule
     origin: np.ndarray  # (3,) in Bohr
     axes: np.ndarray  # (3, 3) step vectors in Bohr
     n_points: tuple[int, int, int]
     data: np.ndarray  # (n1, n2, n3) volumetric data
+    periodic: bool | tuple[bool, bool, bool] = False
+
+    def to_volumetric_data(self) -> VolumetricData:
+        return VolumetricData(
+            molecule=self.molecule,
+            origin=self.origin * BOHR_TO_ANGSTROM,
+            axes=self.axes * BOHR_TO_ANGSTROM,
+            n_points=self.n_points,
+            data=self.data,
+            periodic=self.periodic,
+        )
 
 
 @dataclass
@@ -906,7 +927,7 @@ def parse_cube(filepath: str | Path) -> Molecule:
     return cube_data.molecule
 
 
-def parse_cube_data(filepath: str | Path) -> CubeData:
+def parse_cube_data(filepath: str | Path, periodic: bool = False) -> CubeData:
     filepath = Path(filepath)
     with open(filepath) as f:
         # Lines 0-1: comments
@@ -953,15 +974,34 @@ def parse_cube_data(filepath: str | Path) -> CubeData:
     values = np.array(data_text.split(), dtype=np.float64)
     data = values.reshape(n_points[0], n_points[1], n_points[2])
 
-    mol = Molecule(atoms=atoms, bonds=[])
-    mol.detect_bonds()
+    n_points_tuple = (n_points[0], n_points[1], n_points[2])
+    lattice = None
+    pbc = None
+    if periodic:
+        lattice = np.array(
+            [n_points_tuple[i] * axes[i] * BOHR_TO_ANGSTROM for i in range(3)],
+            dtype=np.float64,
+        )
+        # Cube files do not carry explicit PBC flags. Match ASE's convention:
+        # derive periodicity per axis from whether the corresponding cell
+        # vector is nonzero. This supports 2D slices/slabs represented by a
+        # zero grid step vector.
+        pbc = tuple(bool(np.any(np.abs(vec) > 1e-12)) for vec in lattice)
+    mol = Molecule(
+        atoms=atoms,
+        bonds=[],
+        lattice=lattice,
+        pbc=pbc,
+    )
+    mol.detect_bonds_auto()
 
     return CubeData(
         molecule=mol,
         origin=origin,
         axes=axes,
-        n_points=(n_points[0], n_points[1], n_points[2]),
+        n_points=n_points_tuple,
         data=data,
+        periodic=periodic,
     )
 
 
@@ -1140,6 +1180,18 @@ def parse_xsf(filepath: str | Path) -> Molecule:
     from .periodic.xsf import parse_xsf as _parse_xsf
 
     return _parse_xsf(filepath)
+
+
+def parse_xsf_volumetric_data(filepath: str | Path) -> VolumetricData:
+    from .periodic.xsf import parse_xsf_volumetric_data as _parse_xsf_volumetric_data
+
+    return _parse_xsf_volumetric_data(filepath)
+
+
+def parse_vasp_volumetric_data(filepath: str | Path) -> VolumetricData:
+    from .periodic.vasp import parse_vasp_volumetric_data as _parse_vasp_volumetric_data
+
+    return _parse_vasp_volumetric_data(filepath)
 
 
 def _is_poscar_like_path(filepath: Path) -> bool:

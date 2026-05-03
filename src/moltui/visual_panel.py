@@ -217,6 +217,9 @@ class VisualPanel(Widget):
         self._has_trajectory = False
         self._has_normal_modes = False
         self._has_lattice = False
+        self._isovalue_min = 0.001
+        self._isovalue_max = 0.10
+        self._isovalue_step = 0.005
 
     def set_state(
         self,
@@ -237,6 +240,9 @@ class VisualPanel(Widget):
         trajectory_fps: float = 12.0,
         has_lattice: bool = False,
         show_cell: bool = True,
+        isovalue_min: float = 0.001,
+        isovalue_max: float = 0.10,
+        isovalue_step: float = 0.005,
     ) -> None:
         self._licorice = licorice
         self._vdw = vdw
@@ -244,6 +250,9 @@ class VisualPanel(Widget):
         self._has_trajectory = has_trajectory
         self._has_normal_modes = has_normal_modes
         self._has_lattice = has_lattice
+        self._isovalue_min = isovalue_min
+        self._isovalue_max = isovalue_max
+        self._isovalue_step = isovalue_step
         if self.is_mounted:
             self._sync_widgets(
                 ambient=ambient,
@@ -286,7 +295,11 @@ class VisualPanel(Widget):
         self.query_one("#slider-diffuse", Slider).value = diffuse
         self.query_one("#slider-specular", Slider).value = specular
         self.query_one("#slider-shininess", Slider).value = shininess
-        self.query_one("#slider-isovalue", Slider).value = isovalue
+        isovalue_slider = self.query_one("#slider-isovalue", Slider)
+        isovalue_slider.min_val = self._isovalue_min
+        isovalue_slider.max_val = self._isovalue_max
+        isovalue_slider.step = self._isovalue_step
+        isovalue_slider.value = isovalue
         self.query_one("#slider-vibrational-speed", Slider).value = vibrational_phase_step
         self.query_one("#slider-trajectory-speed", Slider).value = trajectory_fps
         self.query_one("#checkbox-show-cell", Toggle).value = show_cell

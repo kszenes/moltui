@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from moltui.elements import Atom, Molecule, get_element, get_element_by_number
+from moltui.parsers import VolumetricData
 
 
 def _parse_float(token: str) -> float:
@@ -53,15 +54,7 @@ def _symbols_from_comment(comment: str, counts: list[int]) -> list[str]:
     return ["X"] * len(counts)
 
 
-def parse_poscar(filepath: str | Path) -> Molecule:
-    """Parse a VASP POSCAR/CONTCAR-like structure file.
-
-    Returned coordinates and row-vector lattice are in Angstrom. VASP 4
-    atom-count-only files are supported by deriving species from the comment
-    line when possible; otherwise unknown ``X`` atoms are used.
-    """
-    path = Path(filepath)
-    lines = path.read_text().splitlines()
+def _parse_poscar_lines(lines: list[str]) -> tuple[Molecule, int]:
     if len(lines) < 8:
         raise ValueError("POSCAR/CONTCAR file is too short")
 
@@ -138,4 +131,60 @@ def parse_poscar(filepath: str | Path) -> Molecule:
 
     mol = Molecule(atoms=atoms, bonds=[], lattice=lattice)
     mol.detect_bonds_auto()
-    return mol
+    return mol, idx + n_atoms
+
+
+def parse_poscar(filepath: str | Path) -> Molecule:
+    """Parse a VASP POSCAR/CONTCAR-like structure file.
+
+    Returned coordinates and row-vector lattice are in Angstrom. VASP 4
+    atom-count-only files are supported by deriving species from the comment
+    line when possible; otherwise unknown ``X`` atoms are used.
+    """
+    return _parse_poscar_lines(Path(filepath).read_text().splitlines())[0]
+
+
+def parse_vasp_volumetric_data(filepath: str | Path) -> VolumetricData:
+    """Parse a VASP CHGCAR/PARCHG/LOCPOT/ELFCAR-like scalar grid.
+
+    The first scalar dataset is returned for files that contain additional
+    spin-difference or augmentation datasets.
+    """
+    lines = Path(filepath).read_text().splitlines()
+    molecule, idx = _parse_poscar_lines(lines)
+
+    while idx < len(lines) and not lines[idx].strip():
+        idx += 1
+    if idx >= len(lines):
+        raise ValueError("VASP volumetric file missing grid dimensions")
+    try:
+        n_points = tuple(int(tok) for tok in lines[idx].split()[:3])
+    except ValueError as exc:
+        raise ValueError("Invalid VASP volumetric grid dimensions") from exc
+    if len(n_points) != 3:
+        raise ValueError("Invalid VASP volumetric grid dimensions")
+    idx += 1
+
+    n_values = n_points[0] * n_points[1] * n_points[2]
+    values: list[float] = []
+    while idx < len(lines) and len(values) < n_values:
+        stripped = lines[idx].strip()
+        if stripped:
+            values.extend(_parse_float(tok) for tok in stripped.split())
+        idx += 1
+    if len(values) < n_values:
+        raise ValueError("VASP volumetric grid ended before all scalar values were read")
+
+    data = np.array(values[:n_values], dtype=np.float64).reshape(n_points)
+    assert molecule.lattice is not None
+    axes = np.array([molecule.lattice[i] / n_points[i] for i in range(3)], dtype=np.float64)
+    molecule.pbc = (True, True, True)
+    molecule.detect_bonds_periodic()
+    return VolumetricData(
+        molecule=molecule,
+        origin=np.zeros(3, dtype=np.float64),
+        axes=axes,
+        n_points=n_points,  # type: ignore[arg-type]
+        data=data,
+        periodic=True,
+    )

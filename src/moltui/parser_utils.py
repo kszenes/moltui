@@ -37,6 +37,7 @@ def read_scalar_grid_values(
     *,
     parser: Callable[[str], float] = float,
     stop_prefixes: tuple[str, ...] = (),
+    order: str = "C",
 ) -> tuple[np.ndarray, int]:
     """Read a flat scalar grid from text lines and reshape it to n_points."""
     n_values = n_points[0] * n_points[1] * n_points[2]
@@ -53,4 +54,4 @@ def read_scalar_grid_values(
         idx += 1
     if len(values) < n_values:
         raise ValueError("scalar grid ended before all values were read")
-    return np.array(values[:n_values], dtype=np.float64).reshape(n_points), idx
+    return np.array(values[:n_values], dtype=np.float64).reshape(n_points, order=order), idx

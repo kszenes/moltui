@@ -170,7 +170,37 @@ def test_vasp_volumetric_parser_reads_structure_and_grid(tmp_path: Path):
     assert volume.n_points == (2, 2, 2)
     np.testing.assert_allclose(volume.molecule.lattice, np.eye(3) * 2.0)
     np.testing.assert_allclose(volume.axes, np.eye(3))
-    np.testing.assert_allclose(volume.data.ravel(), np.arange(8))
+    expected = np.arange(8, dtype=np.float64).reshape((2, 2, 2), order="F") / 8.0
+    np.testing.assert_allclose(volume.data, expected)
+
+
+def test_vasp_volumetric_parser_accepts_vasp642_potential_hashes(tmp_path: Path):
+    path = tmp_path / "LOCPOT"
+    path.write_text(
+        "\n".join(
+            [
+                "VASP 6.4.2 labels",
+                "1.0",
+                "2 0 0",
+                "0 2 0",
+                "0 0 2",
+                "Mg_pv/f474ac0d Si/79d9987ad87",
+                "1 1",
+                "Direct",
+                "0 0 0",
+                "0.5 0.5 0.5",
+                "",
+                "1 1 2",
+                "8 16",
+                "",
+            ]
+        )
+    )
+
+    volume = parse_vasp_volumetric_data(path)
+
+    assert [atom.element.symbol for atom in volume.molecule.atoms] == ["Mg", "Si"]
+    np.testing.assert_allclose(volume.data.ravel(), [1.0, 2.0])
 
 
 def test_vasp_volumetric_structure_matches_ase(tmp_path: Path):

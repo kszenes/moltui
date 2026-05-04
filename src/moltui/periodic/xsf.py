@@ -19,7 +19,8 @@ def _parse_structure_lines(lines: list[str]) -> Molecule:
         if not stripped or stripped.startswith("#"):
             i += 1
             continue
-        if upper == "PRIMVEC":
+        keyword = upper.split()[0]
+        if keyword == "PRIMVEC":
             if i + 3 >= len(lines):
                 raise ValueError("XSF PRIMVEC block is incomplete")
             lattice = np.array(
@@ -28,7 +29,7 @@ def _parse_structure_lines(lines: list[str]) -> Molecule:
             )
             i += 4
             continue
-        if upper == "PRIMCOORD":
+        if keyword == "PRIMCOORD":
             if i + 1 >= len(lines):
                 raise ValueError("XSF PRIMCOORD block is incomplete")
             header = lines[i + 1].split()

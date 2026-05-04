@@ -5,7 +5,11 @@ from pathlib import Path
 import numpy as np
 
 from ..elements import Atom, Molecule, get_element
-from ..parser_utils import parse_fortran_float, read_scalar_grid_values, resolve_element_token
+from ..parser_utils import (
+    parse_fortran_float,
+    read_scalar_grid_values,
+    resolve_element_token,
+)
 from ..volumetric import VolumetricData
 
 _parse_float = parse_fortran_float
@@ -53,6 +57,14 @@ def _symbols_from_comment(comment: str, counts: list[int]) -> list[str]:
     return ["X"] * len(counts)
 
 
+def _normalize_symbol_line_token(token: str) -> str:
+    """Normalize VASP symbol-line tokens such as Mg_pv/f474ac0d."""
+    candidate = token.split("/", 1)[0].split("_", 1)[0]
+    if get_element(candidate).atomic_number != 0:
+        return candidate
+    return token
+
+
 def _parse_poscar_lines(lines: list[str]) -> tuple[Molecule, int]:
     if len(lines) < 8:
         raise ValueError("POSCAR/CONTCAR file is too short")
@@ -77,7 +89,7 @@ def _parse_poscar_lines(lines: list[str]) -> tuple[Molecule, int]:
         symbols = _symbols_from_comment(comment, counts)
         idx += 1
     else:
-        symbols = first
+        symbols = [_normalize_symbol_line_token(tok) for tok in first]
         idx += 1
         if idx >= len(lines):
             raise ValueError("POSCAR missing atom counts")
@@ -161,10 +173,17 @@ def parse_vasp_volumetric_data(filepath: str | Path) -> VolumetricData:
     idx += 1
 
     try:
-        data, _ = read_scalar_grid_values(lines, idx, n_points, parser=_parse_float)
+        data, _ = read_scalar_grid_values(
+            lines,
+            idx,
+            n_points,
+            parser=_parse_float,
+            order="F",
+        )
     except ValueError as exc:
         raise ValueError("VASP volumetric grid ended before all scalar values were read") from exc
     assert molecule.lattice is not None
+    data /= abs(float(np.linalg.det(molecule.lattice)))
     axes = np.array([molecule.lattice[i] / n_points[i] for i in range(3)], dtype=np.float64)
     molecule.pbc = (True, True, True)
     molecule.detect_bonds_periodic()

@@ -4,7 +4,7 @@ import numpy as np
 from scipy.ndimage import zoom
 from skimage.measure import marching_cubes
 
-from .parsers import CubeData, VolumetricData
+from .volumetric import CubeData, VolumetricData
 
 COLOR_POSITIVE = (255, 135, 0)  # orange
 COLOR_NEGATIVE = (30, 100, 255)  # blue

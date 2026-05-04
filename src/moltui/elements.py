@@ -283,7 +283,7 @@ class Molecule:
         and bonded to ``i``. This keeps crossing-cell bonds visible without
         expanding every boundary atom into a cluster of neighboring cells.
         """
-        del tol, bond_tolerance  # kept for API compatibility
+        del tol  # boundary-replication tolerance kept for API compatibility
         if self.lattice is None or not self.atoms:
             return self
 
@@ -294,7 +294,7 @@ class Molecule:
                 lattice=self.lattice,
                 pbc=self.pbc,
             )
-            working.detect_bonds_periodic()
+            working.detect_bonds_periodic(tolerance=bond_tolerance)
         else:
             working = self
 

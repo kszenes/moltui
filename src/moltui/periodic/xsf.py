@@ -4,8 +4,9 @@ from pathlib import Path
 
 import numpy as np
 
-from moltui.elements import Atom, Molecule, get_element, get_element_by_number
-from moltui.parsers import VolumetricData
+from ..elements import Atom, Molecule
+from ..parser_utils import read_scalar_grid_values, resolve_element_token
+from ..volumetric import VolumetricData
 
 
 def _parse_structure_lines(lines: list[str]) -> Molecule:
@@ -42,11 +43,7 @@ def _parse_structure_lines(lines: list[str]) -> Molecule:
                 parts = line.split()
                 if len(parts) < 4:
                     raise ValueError("Invalid XSF atom line")
-                token = parts[0]
-                try:
-                    element = get_element_by_number(int(token))
-                except ValueError:
-                    element = get_element(token)
+                element = resolve_element_token(parts[0])
                 pos = np.array(
                     [float(parts[1]), float(parts[2]), float(parts[3])], dtype=np.float64
                 )
@@ -90,17 +87,17 @@ def parse_xsf_volumetric_data(filepath: str | Path) -> VolumetricData:
             except ValueError as exc:
                 raise ValueError("Invalid XSF DATAGRID_3D header") from exc
 
-            n_values = n_points[0] * n_points[1] * n_points[2]
-            values: list[float] = []
-            j = i + 6
-            while j < len(lines) and len(values) < n_values:
-                stripped = lines[j].strip()
-                if stripped and not stripped.upper().startswith("END_DATAGRID_3D"):
-                    values.extend(float(tok) for tok in stripped.split())
-                j += 1
-            if len(values) < n_values:
-                raise ValueError("XSF DATAGRID_3D ended before all scalar values were read")
-            data = np.array(values[:n_values], dtype=np.float64).reshape(n_points)
+            try:
+                data, _ = read_scalar_grid_values(
+                    lines,
+                    i + 6,
+                    n_points,
+                    stop_prefixes=("END_DATAGRID_3D",),
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    "XSF DATAGRID_3D ended before all scalar values were read"
+                ) from exc
             axes = np.array([spans[k] / max(n_points[k] - 1, 1) for k in range(3)])
             return VolumetricData(
                 molecule=molecule,

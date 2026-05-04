@@ -4,12 +4,11 @@ from pathlib import Path
 
 import numpy as np
 
-from moltui.elements import Atom, Molecule, get_element, get_element_by_number
-from moltui.parsers import VolumetricData
+from ..elements import Atom, Molecule, get_element
+from ..parser_utils import parse_fortran_float, read_scalar_grid_values, resolve_element_token
+from ..volumetric import VolumetricData
 
-
-def _parse_float(token: str) -> float:
-    return float(token.replace("D", "E").replace("d", "e"))
+_parse_float = parse_fortran_float
 
 
 def _is_int_line(tokens: list[str]) -> bool:
@@ -123,11 +122,7 @@ def _parse_poscar_lines(lines: list[str]) -> tuple[Molecule, int]:
             raise ValueError("Invalid POSCAR coordinate line")
         coords = np.array([_parse_float(parts[0]), _parse_float(parts[1]), _parse_float(parts[2])])
         pos = coords @ lattice if direct else coords * cart_scale
-        if symbol.strip().isdigit():
-            element = get_element_by_number(int(symbol))
-        else:
-            element = get_element(symbol)
-        atoms.append(Atom(element=element, position=pos.astype(np.float64)))
+        atoms.append(Atom(element=resolve_element_token(symbol), position=pos.astype(np.float64)))
 
     mol = Molecule(atoms=atoms, bonds=[], lattice=lattice)
     mol.detect_bonds_auto()
@@ -165,17 +160,10 @@ def parse_vasp_volumetric_data(filepath: str | Path) -> VolumetricData:
         raise ValueError("Invalid VASP volumetric grid dimensions")
     idx += 1
 
-    n_values = n_points[0] * n_points[1] * n_points[2]
-    values: list[float] = []
-    while idx < len(lines) and len(values) < n_values:
-        stripped = lines[idx].strip()
-        if stripped:
-            values.extend(_parse_float(tok) for tok in stripped.split())
-        idx += 1
-    if len(values) < n_values:
-        raise ValueError("VASP volumetric grid ended before all scalar values were read")
-
-    data = np.array(values[:n_values], dtype=np.float64).reshape(n_points)
+    try:
+        data, _ = read_scalar_grid_values(lines, idx, n_points, parser=_parse_float)
+    except ValueError as exc:
+        raise ValueError("VASP volumetric grid ended before all scalar values were read") from exc
     assert molecule.lattice is not None
     axes = np.array([molecule.lattice[i] / n_points[i] for i in range(3)], dtype=np.float64)
     molecule.pbc = (True, True, True)

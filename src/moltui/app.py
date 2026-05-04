@@ -28,8 +28,6 @@ from .isosurface import IsosurfaceMesh, extract_isosurfaces
 from .mo_panel import MOPanel
 from .normal_mode_panel import NormalModePanel
 from .parsers import (
-    CubeData,
-    VolumetricData,
     load_molecule,
     parse_cube_data,
     parse_orca_hess_data,
@@ -38,6 +36,7 @@ from .parsers import (
     parse_xyz_trajectory,
 )
 from .visual_panel import Slider, Toggle, VisualPanel
+from .volumetric import CubeData, VolumetricData, default_volume_isovalue, volume_isovalue_range
 
 # Braille dot positions: each cell is 2 wide x 4 tall
 # Bit layout for Unicode braille (U+2800 + bits):
@@ -73,6 +72,7 @@ _VIEW_GEOMETRY = "geometry"
 _VIEW_MO = "mo"
 _VIEW_NORMAL = "normal"
 _PANEL_NAV_DEBOUNCE_SEC = 0.06
+_default_volume_isovalue = default_volume_isovalue  # backward-compatible private helper
 
 
 class ExportRenderKwargs(TypedDict):
@@ -129,17 +129,6 @@ def _build_view_render_scene(
 
     isos = view.isosurfaces if view.show_orbitals else None
     return mol, isos, view.show_cell
-
-
-def _default_volume_isovalue(volume: CubeData | VolumetricData) -> float:
-    data = volume.data
-    data_min = float(np.nanmin(data))
-    data_max = float(np.nanmax(data))
-    if data_min <= 0.05 <= data_max:
-        return 0.05
-    if data_min >= 0.0:
-        return 0.5 * (data_min + data_max)
-    return 0.25 * max(abs(data_min), abs(data_max))
 
 
 def _compute_mo_isosurfaces(
@@ -726,6 +715,7 @@ class MoltuiApp(App):
 
     def _sync_visual_panel(self, view: MoleculeView) -> None:
         vis = self.query_one(VisualPanel)
+        isovalue_min, isovalue_max, isovalue_step = self._isovalue_range()
         vis.set_state(
             licorice=view.licorice,
             vdw=view.vdw,
@@ -745,27 +735,13 @@ class MoltuiApp(App):
             trajectory_fps=1.0 / self._playback_interval_sec,
             has_lattice=view.molecule is not None and view.molecule.lattice is not None,
             show_cell=view.show_cell,
-            isovalue_min=self._isovalue_range()[0],
-            isovalue_max=self._isovalue_range()[1],
-            isovalue_step=self._isovalue_range()[2],
+            isovalue_min=isovalue_min,
+            isovalue_max=isovalue_max,
+            isovalue_step=isovalue_step,
         )
 
     def _isovalue_range(self) -> tuple[float, float, float]:
-        if self._volumetric_data is None:
-            return (0.001, 0.10, 0.005)
-        data = self._volumetric_data.data
-        data_min = float(np.nanmin(data))
-        data_max = float(np.nanmax(data))
-        if data_min >= 0.0:
-            span = max(data_max - data_min, 1e-6)
-            return (data_min, data_max, span / 100.0)
-        if data_max <= 0.0:
-            min_abs = abs(data_max)
-            max_abs = abs(data_min)
-            span = max(max_abs - min_abs, 1e-6)
-            return (min_abs, max_abs, span / 100.0)
-        max_abs = max(abs(data_min), abs(data_max), 0.1)
-        return (0.001, max_abs, max_abs / 100.0)
+        return volume_isovalue_range(self._volumetric_data)
 
     def _has_animation(self) -> bool:
         if self._view_mode == _VIEW_GEOMETRY:
@@ -1665,6 +1641,18 @@ def _cli_homo_mo_isosurfaces(orbital_data: OrbitalData) -> tuple[list[Isosurface
     return extract_isosurfaces(cube_data), current_mo
 
 
+def _prepare_volume_cli_session(
+    volume: CubeData | VolumetricData,
+) -> tuple[Molecule, list[IsosurfaceMesh], CubeData | VolumetricData, float]:
+    initial_isovalue = default_volume_isovalue(volume)
+    return (
+        volume.molecule,
+        extract_isosurfaces(volume, isovalue=initial_isovalue),
+        volume,
+        initial_isovalue,
+    )
+
+
 def _prepare_cif_cli_session(filepath: str | Path) -> tuple[Molecule, str | None]:
     import warnings as _warnings
 
@@ -1757,17 +1745,14 @@ def run():
         initial_isovalue = 0.05
         if filetype == "cube":
             cube_data = parse_cube_data(filepath, periodic=parsed.periodic)
-            initial_isovalue = _default_volume_isovalue(cube_data)
-            molecule = cube_data.molecule
-            isosurfaces = extract_isosurfaces(cube_data, isovalue=initial_isovalue)
+            molecule, isosurfaces, volumetric_data_for_app, initial_isovalue = (
+                _prepare_volume_cli_session(cube_data)
+            )
             cube_data_for_app = cube_data
-            volumetric_data_for_app = cube_data
         elif filetype == "vasp-volumetric":
-            volume = parse_vasp_volumetric_data(filepath)
-            initial_isovalue = _default_volume_isovalue(volume)
-            molecule = volume.molecule
-            isosurfaces = extract_isosurfaces(volume, isovalue=initial_isovalue)
-            volumetric_data_for_app = volume
+            molecule, isosurfaces, volumetric_data_for_app, initial_isovalue = (
+                _prepare_volume_cli_session(parse_vasp_volumetric_data(filepath))
+            )
         elif filetype == "xsf":
             try:
                 volume = parse_xsf_volumetric_data(filepath)
@@ -1776,10 +1761,9 @@ def run():
                     raise
                 molecule = load_molecule(filepath)
             else:
-                initial_isovalue = _default_volume_isovalue(volume)
-                molecule = volume.molecule
-                isosurfaces = extract_isosurfaces(volume, isovalue=initial_isovalue)
-                volumetric_data_for_app = volume
+                molecule, isosurfaces, volumetric_data_for_app, initial_isovalue = (
+                    _prepare_volume_cli_session(volume)
+                )
         elif filetype == "molden":
             from .molden import load_molden_data
 

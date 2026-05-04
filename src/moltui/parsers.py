@@ -6,43 +6,12 @@ from pathlib import Path
 import numpy as np
 
 from .elements import ELEMENTS, Atom, Element, Molecule, get_element, get_element_by_number
+from .parser_utils import parse_fortran_float, resolve_element_token
+from .volumetric import BOHR_TO_ANGSTROM, CubeData, VolumetricData
 
 
 class CIFParseWarning(UserWarning):
     """Warning emitted by parse_cif for non-fatal interpretation issues."""
-
-
-BOHR_TO_ANGSTROM = 0.529177249
-
-
-@dataclass
-class VolumetricData:
-    molecule: Molecule
-    origin: np.ndarray  # (3,) in Angstrom
-    axes: np.ndarray  # (3, 3) grid step vectors in Angstrom
-    n_points: tuple[int, int, int]
-    data: np.ndarray  # (n1, n2, n3) volumetric data
-    periodic: bool | tuple[bool, bool, bool] = False
-
-
-@dataclass
-class CubeData:
-    molecule: Molecule
-    origin: np.ndarray  # (3,) in Bohr
-    axes: np.ndarray  # (3, 3) step vectors in Bohr
-    n_points: tuple[int, int, int]
-    data: np.ndarray  # (n1, n2, n3) volumetric data
-    periodic: bool | tuple[bool, bool, bool] = False
-
-    def to_volumetric_data(self) -> VolumetricData:
-        return VolumetricData(
-            molecule=self.molecule,
-            origin=self.origin * BOHR_TO_ANGSTROM,
-            axes=self.axes * BOHR_TO_ANGSTROM,
-            n_points=self.n_points,
-            data=self.data,
-            periodic=self.periodic,
-        )
 
 
 @dataclass
@@ -53,6 +22,17 @@ class XYZTrajectory:
 
 
 @dataclass
+class _XYZFrame:
+    symbols: list[str]
+    coords: np.ndarray
+    lattice: np.ndarray | None
+    pbc: tuple[bool, bool, bool] | None
+    species_col: int
+    pos_col: int
+    next_idx: int
+
+
+@dataclass
 class HessData:
     molecule: Molecule
     frequencies: np.ndarray | None = None  # (n_modes,)
@@ -60,7 +40,7 @@ class HessData:
 
 
 def _parse_float(token: str) -> float:
-    return float(token.replace("D", "E").replace("d", "e"))
+    return parse_fortran_float(token)
 
 
 def _parse_orca_hess_sections(text: str) -> dict[str, list[str]]:
@@ -230,7 +210,24 @@ def parse_xyz(filepath: str | Path) -> Molecule:
     with open(filepath) as f:
         lines = f.readlines()
 
-    idx = 0
+    frame = _read_xyz_frame(lines, 0)
+    atoms = [
+        Atom(element=_resolve_species(symbol), position=frame.coords[i].copy())
+        for i, symbol in enumerate(frame.symbols)
+    ]
+    molecule = Molecule(atoms=atoms, bonds=[], lattice=frame.lattice, pbc=frame.pbc)
+    molecule.detect_bonds_auto()
+    return molecule
+
+
+def _read_xyz_frame(
+    lines: list[str],
+    idx: int,
+    *,
+    species_col: int = 0,
+    pos_col: int = 1,
+    parse_metadata: bool = True,
+) -> _XYZFrame:
     while idx < len(lines) and not lines[idx].strip():
         idx += 1
     if idx >= len(lines):
@@ -247,41 +244,44 @@ def parse_xyz(filepath: str | Path) -> Molecule:
     if frame_end > len(lines):
         raise ValueError("Unexpected end of XYZ file while reading frame atoms")
 
-    species_col = 0
-    pos_col = 1
     lattice = None
     pbc = None
-    comment_line = lines[comment_idx] if comment_idx < len(lines) else ""
-    metadata = _parse_xyz_comment_metadata(comment_line)
-    if "Lattice" in metadata:
-        lattice = _parse_lattice(metadata["Lattice"])
-    if "pbc" in metadata:
-        pbc = _parse_pbc(metadata["pbc"])
-    if "Properties" in metadata:
-        species_col, pos_col = _parse_properties_spec(metadata["Properties"])
+    if parse_metadata:
+        comment_line = lines[comment_idx] if comment_idx < len(lines) else ""
+        metadata = _parse_xyz_comment_metadata(comment_line)
+        if "Lattice" in metadata:
+            lattice = _parse_lattice(metadata["Lattice"])
+        if "pbc" in metadata:
+            pbc = _parse_pbc(metadata["pbc"])
+        if "Properties" in metadata:
+            species_col, pos_col = _parse_properties_spec(metadata["Properties"])
 
-    atoms: list[Atom] = []
+    symbols: list[str] = []
+    coords: list[list[float]] = []
+    min_cols = max(species_col, pos_col + 2) + 1
     for line in lines[frame_start:frame_end]:
         parts = line.split()
-        if len(parts) <= max(species_col, pos_col + 2):
-            raise ValueError(f"Invalid XYZ atom line: {line!r}")
-        element = _resolve_species(parts[species_col])
+        if len(parts) < min_cols:
+            raise ValueError(
+                f"Invalid XYZ atom line; expected at least {min_cols} columns: {line!r}"
+            )
+        symbols.append(parts[species_col])
         try:
-            pos = np.array(
-                [
-                    float(parts[pos_col]),
-                    float(parts[pos_col + 1]),
-                    float(parts[pos_col + 2]),
-                ],
-                dtype=np.float64,
+            coords.append(
+                [float(parts[pos_col]), float(parts[pos_col + 1]), float(parts[pos_col + 2])]
             )
         except ValueError as exc:
             raise ValueError(f"Invalid XYZ coordinates in line: {line!r}") from exc
-        atoms.append(Atom(element, pos))
 
-    molecule = Molecule(atoms=atoms, bonds=[], lattice=lattice, pbc=pbc)
-    molecule.detect_bonds_auto()
-    return molecule
+    return _XYZFrame(
+        symbols=symbols,
+        coords=np.array(coords, dtype=np.float64),
+        lattice=lattice,
+        pbc=pbc,
+        species_col=species_col,
+        pos_col=pos_col,
+        next_idx=frame_end,
+    )
 
 
 def _parse_xyz_comment_metadata(line: str) -> dict[str, str]:
@@ -356,11 +356,7 @@ def _parse_properties_spec(value: str) -> tuple[int, int]:
 
 def _resolve_species(token: str) -> Element:
     """Resolve an atom token (element symbol or atomic number) to an Element."""
-    try:
-        z = int(token)
-    except ValueError:
-        return get_element(token)
-    return get_element_by_number(z)
+    return resolve_element_token(token)
 
 
 def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
@@ -374,63 +370,38 @@ def parse_xyz_trajectory(filepath: str | Path) -> XYZTrajectory:
     pbc: tuple[bool, bool, bool] | None = None
     species_col = 0
     pos_col = 1
-    is_first_frame = True
     idx = 0
+    is_first_frame = True
     while idx < len(lines):
         while idx < len(lines) and not lines[idx].strip():
             idx += 1
         if idx >= len(lines):
             break
 
-        try:
-            n_atoms = int(lines[idx].strip())
-        except ValueError as exc:
-            raise ValueError(f"Invalid XYZ frame header at line {idx + 1}") from exc
-        comment_idx = idx + 1
-        frame_start = idx + 2
-        frame_end = frame_start + n_atoms
-        if frame_end > len(lines):
-            raise ValueError("Unexpected end of XYZ file while reading frame atoms")
-
+        frame = _read_xyz_frame(
+            lines,
+            idx,
+            species_col=species_col,
+            pos_col=pos_col,
+            parse_metadata=is_first_frame,
+        )
         if is_first_frame:
-            comment_line = lines[comment_idx] if comment_idx < len(lines) else ""
-            metadata = _parse_xyz_comment_metadata(comment_line)
-            if "Lattice" in metadata:
-                lattice = _parse_lattice(metadata["Lattice"])
-            if "pbc" in metadata:
-                pbc = _parse_pbc(metadata["pbc"])
-            if "Properties" in metadata:
-                species_col, pos_col = _parse_properties_spec(metadata["Properties"])
+            lattice = frame.lattice
+            pbc = frame.pbc
+            species_col = frame.species_col
+            pos_col = frame.pos_col
             is_first_frame = False
 
-        frame_symbols: list[str] = []
-        frame_coords: list[list[float]] = []
-        min_cols = max(species_col, pos_col + 2) + 1
-        for line in lines[frame_start:frame_end]:
-            parts = line.split()
-            if len(parts) < min_cols:
-                raise ValueError(
-                    f"Invalid XYZ atom line; expected at least {min_cols} columns: {line!r}"
-                )
-            frame_symbols.append(parts[species_col])
-            frame_coords.append(
-                [
-                    float(parts[pos_col]),
-                    float(parts[pos_col + 1]),
-                    float(parts[pos_col + 2]),
-                ]
-            )
-
         if symbols_ref is None:
-            symbols_ref = frame_symbols
+            symbols_ref = frame.symbols
         else:
-            if len(frame_symbols) != len(symbols_ref):
+            if len(frame.symbols) != len(symbols_ref):
                 raise ValueError("All XYZ frames must have the same atom count")
-            if frame_symbols != symbols_ref:
+            if frame.symbols != symbols_ref:
                 raise ValueError("All XYZ frames must preserve atom ordering and symbols")
 
-        frames.append(np.array(frame_coords, dtype=np.float64))
-        idx = frame_end
+        frames.append(frame.coords)
+        idx = frame.next_idx
 
     if not frames or symbols_ref is None:
         raise ValueError("Empty XYZ file")

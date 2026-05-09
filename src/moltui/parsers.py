@@ -1299,19 +1299,19 @@ def load_molecule(filepath: str | Path) -> Molecule:
                 return parse_qc_input(filepath, sniffed)
             try:
                 return load_molecule_from_cclib(filepath)
-            except (ImportError, ValueError) as exc:
+            except ImportError as exc:
                 raise ValueError(
                     f"Could not identify QC input or cclib-supported output format from "
                     f"contents of {filepath!s}"
                 ) from exc
         try:
             return load_molecule_from_cclib(filepath)
-        except (ImportError, ValueError):
+        except ImportError:
             pass
         raise ValueError(
-            f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, "
-            ".hess, .cif, .gbw, cclib-supported outputs, a QC input (Orca, "
-            "Q-Chem, Gaussian, NWChem, Turbomole, Molcas, Molpro, MRCC, CFOUR, "
-            "Psi4, GAMESS, or Jaguar), or TREXIO (.h5, .hdf5, .trexio; "
-            "install optional extra: trexio)"
+            f"cclib could not parse file: {filepath}. Unsupported file format: {suffix}. "
+            "Use .xyz, .cube, .molden, .hess, .cif, .gbw, cclib-supported "
+            "outputs, a QC input (Orca, Q-Chem, Gaussian, NWChem, Turbomole, "
+            "Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, or Jaguar), or TREXIO "
+            "(.h5, .hdf5, .trexio; install optional extra: trexio)"
         )

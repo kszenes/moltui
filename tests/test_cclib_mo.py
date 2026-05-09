@@ -14,13 +14,19 @@ from moltui.molden import OrbitalData, evaluate_mo
 from moltui.parsers import load_orbital_data_from_cclib
 
 DATA = Path(__file__).parent.parent / "data"
-N2_OUT = DATA / "orca/mo/n2.out"
-N2_MOLDEN = DATA / "orca/mo/n2.molden.input"
+N2_OUT = DATA / "orca/mo/n2_nosym.out"
+N2_MOLDEN = DATA / "orca/n2.molden.input"
+
+
+def _require(path: Path) -> Path:
+    if not path.exists():
+        pytest.skip(f"data file not found: {path}")
+    return path
 
 
 @pytest.fixture(scope="module")
 def od_cclib() -> OrbitalData:
-    return load_orbital_data_from_cclib(N2_OUT)
+    return load_orbital_data_from_cclib(_require(N2_OUT))
 
 
 @pytest.fixture(scope="module")
@@ -28,7 +34,7 @@ def od_molden() -> OrbitalData:
     from moltui.elements import Atom, Molecule, get_element
     from moltui.parsers import BOHR_TO_ANGSTROM
 
-    basis = parse_molden(N2_MOLDEN)
+    basis = parse_molden(_require(N2_MOLDEN))
     atoms = [
         Atom(
             element=get_element(sym),

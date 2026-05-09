@@ -482,8 +482,6 @@ class MoltuiApp(App):
         self._mo_switch_task: asyncio.Task[None] | None = None
         self.trajectory_data = trajectory_data
         self.normal_mode_data = normal_mode_data
-        if self.normal_mode_data is not None and self.normal_mode_data.mode_vectors.shape[0] > 0:
-            self.normal_mode_data.mode_index = self._first_vibrational_mode_index()
         self._startup_toast: str | None = None
         self._view_mode = _VIEW_GEOMETRY
         self._panel_hidden = False

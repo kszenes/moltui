@@ -192,4 +192,5 @@ The molecular structures can be viewed from the inputs of the following programs
 
 ## Acknowledgements
 
-Parser tests are cross-validated with data and reference parsers from [IODATA](https://github.com/theochem/iodata), [cclib](https://github.com/cclib/cclib) / [cclib-data](https://github.com/cclib/cclib-data), [PySCF](https://github.com/pyscf/pyscf), and [ASE](https://gitlab.com/ase/ase).
+- The parsing of the quantum chemistry output files is entirely handled by the wonderful [cclib](https://github.com/cclib/cclib) package.
+- Additionally, parser tests are cross-validated with data and reference parsers from [IODATA](https://github.com/theochem/iodata), [cclib](https://github.com/cclib/cclib) / [cclib-data](https://github.com/cclib/cclib-data), [PySCF](https://github.com/pyscf/pyscf), and [ASE](https://gitlab.com/ase/ase).

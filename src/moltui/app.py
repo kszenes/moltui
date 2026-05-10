@@ -174,6 +174,7 @@ class NormalModeData:
     equilibrium_coords: np.ndarray  # (n_atoms, 3) in Angstrom
     mode_vectors: np.ndarray  # (n_modes, n_atoms, 3) in Angstrom
     frequencies: np.ndarray | None = None  # (n_modes,)
+    symmetries: list[str] | None = None  # (n_modes,) irrep labels
     mode_index: int = 0
     phase: float = 0.0
     phase_step: float = 0.30
@@ -547,6 +548,7 @@ class MoltuiApp(App):
                     if self.normal_mode_data.frequencies is not None
                     else None
                 ),
+                symmetries=self.normal_mode_data.symmetries,
                 current_mode=self.normal_mode_data.mode_index,
             )
         if self._has_cube_mo() and not self._has_orbital_mos():
@@ -1543,12 +1545,19 @@ def _detect_filetype(filepath: str) -> str:
         return sniffed_qc
     if suffix in (".cube", ".cub"):
         return "cube"
+    try:
+        import cclib
+
+        if cclib.io.ccopen(filepath) is not None:
+            return "cclib"
+    except Exception:
+        pass
     raise ValueError(
         f"Unsupported file format: {filepath!s}. "
         "Supported formats: .xyz, .extxyz, .cif, .cube, .molden, .fchk, .hess, "
-        ".zmat, .gbw, .h5/.hdf5/.trexio (TREXIO), and QC inputs from "
-        "Orca, Molcas, Q-Chem, Gaussian, NWChem, Turbomole, Molpro, MRCC, "
-        "CFOUR, Psi4, GAMESS, and Jaguar."
+        ".zmat, .gbw, .h5/.hdf5/.trexio (TREXIO), cclib-supported outputs, "
+        "and QC inputs from Orca, Molcas, Q-Chem, Gaussian, NWChem, Turbomole, "
+        "Molpro, MRCC, CFOUR, Psi4, GAMESS, and Jaguar."
     )
 
 
@@ -1634,8 +1643,8 @@ def run():
     parser.add_argument(
         "file",
         help=(
-            "molecular structure file (XYZ, Cube, Molden, Gaussian .fchk, "
-            "ORCA .hess, ORCA .gbw, "
+            "molecular structure file (XYZ, Cube, CIF, Molden, Gaussian .fchk, "
+            "ORCA .hess, ORCA .gbw, QC inputs, "
             'or TREXIO .h5/.hdf5/.trexio; optional: pip install "moltui[trexio]")'
         ),
     )
@@ -1671,6 +1680,7 @@ def run():
 
     try:
         trexio_toast: str | None = None
+        cclib_toast: str | None = None
         cube_data_for_app: CubeData | None = None
         if filetype == "cube":
             cube_data = parse_cube_data(filepath)
@@ -1742,10 +1752,23 @@ def run():
                 vib_modes, vib_freqs = _filter_rigid_body_modes(
                     hess_data.normal_modes, hess_data.frequencies
                 )
+                vib_symmetries = hess_data.symmetries
+                if (
+                    vib_symmetries is not None
+                    and hess_data.frequencies is not None
+                    and len(vib_symmetries) == len(hess_data.frequencies)
+                ):
+                    freqs = np.asarray(hess_data.frequencies, dtype=np.float64)
+                    keep = np.abs(freqs) >= _ZERO_MODE_FREQ_TOL_CM1
+                    if not keep.all():
+                        vib_symmetries = [
+                            sym for sym, keep_mode in zip(vib_symmetries, keep) if keep_mode
+                        ]
                 normal_mode_data = NormalModeData(
                     equilibrium_coords=eq_coords,
                     mode_vectors=vib_modes,
                     frequencies=vib_freqs,
+                    symmetries=vib_symmetries,
                 )
         elif filetype == "xyz":
             traj = parse_xyz_trajectory(filepath)
@@ -1755,6 +1778,33 @@ def run():
             molecule, orbital_data, isosurfaces, current_mo, trexio_toast = (
                 _prepare_trexio_cli_session(filepath)
             )
+        elif filetype == "cclib":
+            from .parsers import (
+                load_normal_modes_from_cclib,
+                load_orbital_data_from_cclib,
+                load_trajectory_from_cclib,
+            )
+
+            traj, cclib_result = load_trajectory_from_cclib(filepath)
+            molecule = traj.molecule
+            if len(traj.frames) > 1:
+                trajectory_data = TrajectoryData(frames=traj.frames)
+            orbital_data = load_orbital_data_from_cclib(filepath)
+            if orbital_data is not None and orbital_data.n_mos > 0:
+                isosurfaces, current_mo = _cli_homo_mo_isosurfaces(orbital_data)
+            hess_data = load_normal_modes_from_cclib(filepath)
+            if hess_data is not None and hess_data.normal_modes is not None:
+                eq_coords = np.array([atom.position.copy() for atom in molecule.atoms])
+                normal_mode_data = NormalModeData(
+                    equilibrium_coords=eq_coords,
+                    mode_vectors=hess_data.normal_modes,
+                    frequencies=hess_data.frequencies,
+                    symmetries=hess_data.symmetries,
+                )
+            if cclib_result.partial:
+                cclib_toast = (
+                    f"cclib parsing error: only {', '.join(cclib_result.available)} extracted"
+                )
         else:
             molecule = load_molecule(filepath)
 
@@ -1768,8 +1818,7 @@ def run():
             normal_mode_data=normal_mode_data,
         )
         app._cube_data = cube_data_for_app
-        if filetype == "trexio":
-            app._startup_toast = trexio_toast
+        app._startup_toast = trexio_toast if filetype == "trexio" else cclib_toast
         app.run()
     except ValueError as exc:
         import sys

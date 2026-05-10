@@ -1,10 +1,16 @@
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .elements import Atom, Element, Molecule, get_element, get_element_by_number
+
+if TYPE_CHECKING:
+    from .molden import OrbitalData
 
 BOHR_TO_ANGSTROM = 0.529177249
 
@@ -30,6 +36,7 @@ class HessData:
     molecule: Molecule
     frequencies: np.ndarray | None = None  # (n_modes,)
     normal_modes: np.ndarray | None = None  # (n_modes, n_atoms, 3) in Angstrom
+    symmetries: list[str] | None = None  # (n_modes,) irrep labels
 
 
 def _parse_float(token: str) -> float:
@@ -189,6 +196,13 @@ def parse_orca_hess_data(filepath: str | Path) -> HessData:
         normal_modes = mode_matrix.T.reshape(n_cols, n_atoms, 3) * BOHR_TO_ANGSTROM
         if frequencies is not None:
             frequencies = frequencies[: normal_modes.shape[0]]
+
+    if frequencies is not None and normal_modes is not None:
+        nonzero = np.nonzero(frequencies)[0]
+        if len(nonzero) < len(frequencies):
+            first = int(nonzero[0]) if len(nonzero) > 0 else len(frequencies)
+            frequencies = frequencies[first:]
+            normal_modes = normal_modes[first:]
 
     return HessData(
         molecule=molecule,
@@ -1035,6 +1049,201 @@ def parse_zmat_text(text: str) -> Molecule:
     return mol
 
 
+class CclibResult:
+    """Wraps cclib parsed data with metadata about parse completeness."""
+
+    def __init__(self, data, partial: bool) -> None:
+        self.data = data
+        self.partial = partial
+
+    @property
+    def available(self) -> list[str]:
+        """Human-readable list of successfully extracted data kinds."""
+        labels = []
+        if hasattr(self.data, "atomcoords") and len(self.data.atomcoords) > 0:
+            kind = "trajectories" if len(self.data.atomcoords) > 1 else "geometries"
+            labels.append(kind)
+        if hasattr(self.data, "vibfreqs") and hasattr(self.data, "vibdisps"):
+            labels.append("normal modes")
+        if hasattr(self.data, "mocoeffs") and hasattr(self.data, "gbasis"):
+            labels.append("orbitals")
+        return labels
+
+
+def _parse_cclib_data(filepath: str | Path) -> CclibResult:
+    try:
+        import cclib
+    except ImportError as exc:
+        raise ImportError(
+            "cclib is required to parse this file format. "
+            "Install it with: pip install 'moltui[cclib]'"
+        ) from exc
+
+    parser = cclib.io.ccopen(str(filepath))
+    if parser is None:
+        raise ValueError(f"cclib could not parse file: {filepath}")
+    partial = False
+    try:
+        data = parser.parse()
+    except Exception as exc:
+        # cclib may fail mid-parse but still populate partial attributes
+        # (e.g. atomcoords/atomnos) on the parser object — use those.
+        print(f"cclib failed to fully parse {Path(filepath).name}: {type(exc).__name__}: {exc}")
+        data = parser
+        partial = True
+    if not hasattr(data, "atomcoords") or not hasattr(data, "atomnos"):
+        raise ValueError(f"cclib could not extract any data from: {filepath}")
+    if len(data.atomcoords) == 0:
+        raise ValueError(f"cclib found no coordinates in: {filepath}")
+    return CclibResult(data, partial)
+
+
+def _cclib_data_to_molecule(data, frame_index: int) -> Molecule:
+    coords = np.asarray(data.atomcoords[frame_index], dtype=np.float64)
+    atoms = [
+        Atom(
+            element=get_element_by_number(int(data.atomnos[i])),
+            position=coords[i].copy(),
+        )
+        for i in range(data.natom)
+    ]
+    mol = Molecule(atoms=atoms, bonds=[])
+    mol.detect_bonds()
+    return mol
+
+
+def load_molecule_from_cclib(filepath: str | Path) -> Molecule:
+    return _cclib_data_to_molecule(_parse_cclib_data(filepath).data, frame_index=-1)
+
+
+def load_trajectory_from_cclib(filepath: str | Path) -> tuple[XYZTrajectory, CclibResult]:
+    result = _parse_cclib_data(filepath)
+    frames = np.array(result.data.atomcoords, dtype=np.float64)  # (n_frames, n_atoms, 3)
+    mol = _cclib_data_to_molecule(result.data, frame_index=0)
+    return XYZTrajectory(molecule=mol, frames=frames), result
+
+
+_AM_MAP = {"S": 0, "P": 1, "D": 2, "F": 3, "G": 4}
+_EV_TO_HARTREE = 1.0 / 27.2114
+
+
+def _cclib_detect_spherical(gbasis, nbasis: int) -> dict[int, bool]:
+    """Determine which angular momenta use spherical harmonics by matching nbasis."""
+    shells_by_l: dict[int, int] = {}
+    for atom_shells in gbasis:
+        for am_label, _ in atom_shells:
+            l = _AM_MAP.get(am_label, -1)
+            if l >= 2:
+                shells_by_l[l] = shells_by_l.get(l, 0) + 1
+
+    fixed = sum(
+        2 * l + 1
+        for atom_shells in gbasis
+        for am_label, _ in atom_shells
+        if (l := _AM_MAP.get(am_label, -1)) >= 0 and l < 2
+    )
+    sph_total = fixed + sum(count * (2 * l + 1) for l, count in shells_by_l.items())
+    cart_total = fixed + sum(count * (l + 1) * (l + 2) // 2 for l, count in shells_by_l.items())
+
+    if sph_total == nbasis:
+        return {l: True for l in shells_by_l}
+    elif cart_total == nbasis:
+        return {l: False for l in shells_by_l}
+    return {l: True for l in shells_by_l}  # default to spherical
+
+
+def load_normal_modes_from_cclib(filepath: str | Path) -> HessData | None:
+    """Extract vibrational normal modes from a cclib-supported QC output file.
+
+    Returns None if the file contains no vibrational data.
+    """
+    result = _parse_cclib_data(filepath)
+    data = result.data if isinstance(result, CclibResult) else result
+    if not hasattr(data, "vibfreqs") or not hasattr(data, "vibdisps"):
+        return None
+
+    mol = _cclib_data_to_molecule(data, frame_index=-1)
+    frequencies = np.array(data.vibfreqs, dtype=np.float64)  # (n_modes,)
+    # vibdisps shape: (n_modes, n_atoms, 3) — already in Angstrom
+    normal_modes = np.array(data.vibdisps, dtype=np.float64)
+    symmetries: list[str] | None = list(data.vibsyms) if hasattr(data, "vibsyms") else None
+
+    nonzero = np.nonzero(frequencies)[0]
+    if len(nonzero) < len(frequencies):
+        first = int(nonzero[0]) if len(nonzero) > 0 else len(frequencies)
+        frequencies = frequencies[first:]
+        normal_modes = normal_modes[first:]
+        if symmetries is not None:
+            symmetries = symmetries[first:]
+
+    return HessData(
+        molecule=mol, frequencies=frequencies, normal_modes=normal_modes, symmetries=symmetries
+    )
+
+
+def load_orbital_data_from_cclib(filepath: str | Path) -> "OrbitalData | None":
+    """Load MO data from a cclib-supported QC output file, or None if unavailable."""
+    from .gto import GtoBasis, PrimShell, _prim_norm
+    from .molden import OrbitalData
+
+    data = _parse_cclib_data(filepath).data
+    if not (hasattr(data, "mocoeffs") and hasattr(data, "gbasis")):
+        return None
+
+    coords_bohr = data.atomcoords[-1] / BOHR_TO_ANGSTROM
+    atom_symbols = [get_element_by_number(int(z)).symbol for z in data.atomnos]
+    spherical = _cclib_detect_spherical(data.gbasis, data.nbasis)
+
+    # Build PrimShell list and AO row-permutation (cclib → molden/eval_gto order).
+    # P shells: cclib emits [Pz, Px, Py]; eval_gto expects [Px, Py, Pz] → select [1,2,0].
+    # D and higher spherical: ordering matches (dz2, dxz, dyz, dx2-y2, dxy).
+    shells: list[PrimShell] = []
+    ao_perm: list[int] = []
+    cclib_ao_idx = 0
+
+    for atom_idx, atom_shells in enumerate(data.gbasis):
+        center = coords_bohr[atom_idx]
+        for am_label, primitives in atom_shells:
+            l = _AM_MAP[am_label]
+            exponents = np.array([p[0] for p in primitives])
+            # cclib stores raw contraction coefficients (for unnormalized primitives).
+            # gto.py expects coefficients in the Molden convention (c_k * N_k), so
+            # we pre-multiply each coefficient by its primitive normalization factor.
+            coefficients = np.array([p[1] * _prim_norm(l, p[0]) for p in primitives])
+            shells.append(
+                PrimShell(center=center, l=l, exponents=exponents, coefficients=coefficients)
+            )
+
+            is_sph = spherical.get(l, l <= 1)
+            ncomp = (2 * l + 1) if is_sph else (l + 1) * (l + 2) // 2
+
+            local_sel = [1, 2, 0] if l == 1 else list(range(ncomp))
+            for j in local_sel:
+                ao_perm.append(cclib_ao_idx + j)
+            cclib_ao_idx += ncomp
+
+    # mocoeffs[0]: (nmo, nao) → transpose to (nao, nmo), then reorder rows
+    mo_coefficients = data.mocoeffs[0].T[ao_perm, :]
+    mo_energies = data.moenergies[0] * _EV_TO_HARTREE
+    mo_occupations = np.array(data.nooccnos[0]) if hasattr(data, "nooccnos") else np.zeros(data.nmo)
+    mo_symmetries = list(data.mosyms[0]) if hasattr(data, "mosyms") else [""] * data.nmo
+    mo_spins = ["Alpha"] * data.nmo
+
+    mol = _cclib_data_to_molecule(data, frame_index=-1)
+    basis = GtoBasis(
+        atom_symbols=atom_symbols,
+        atom_coords_bohr=coords_bohr,
+        shells=shells,
+        mo_energies=mo_energies,
+        mo_occupations=mo_occupations,
+        mo_coefficients=mo_coefficients,
+        mo_symmetries=mo_symmetries,
+        mo_spins=mo_spins,
+        spherical=spherical,
+    )
+    return OrbitalData.from_gto_basis(basis, mol)
+
+
 def load_molecule(filepath: str | Path) -> Molecule:
     filepath = Path(filepath)
     suffix = filepath.suffix.lower()
@@ -1072,18 +1281,30 @@ def load_molecule(filepath: str | Path) -> Molecule:
         qc_kind = detect_qc_input_by_extension(filepath)
         if qc_kind is not None:
             return parse_qc_input(filepath, qc_kind)
-        if suffix in QC_INPUT_AMBIGUOUS_SUFFIXES or suffix == "":
-            sniffed = sniff_qc_input(filepath)
-            if sniffed is not None:
-                return parse_qc_input(filepath, sniffed)
-            raise ValueError(f"Could not identify QC input format from contents of {filepath!s}")
+
         from .trexio_support import is_trexio_path, load_molecule_from_trexio
 
         if is_trexio_path(filepath):
             return load_molecule_from_trexio(filepath)
+        if suffix in QC_INPUT_AMBIGUOUS_SUFFIXES or suffix == "":
+            sniffed = sniff_qc_input(filepath)
+            if sniffed is not None:
+                return parse_qc_input(filepath, sniffed)
+            try:
+                return load_molecule_from_cclib(filepath)
+            except ImportError as exc:
+                raise ValueError(
+                    f"Could not identify QC input or cclib-supported output format from "
+                    f"contents of {filepath!s}"
+                ) from exc
+        try:
+            return load_molecule_from_cclib(filepath)
+        except ImportError:
+            pass
         raise ValueError(
-            f"Unsupported file format: {suffix}. Use .xyz, .cube, .molden, "
-            ".hess, .cif, .gbw, a QC input (Orca, Q-Chem, Gaussian, NWChem, "
-            "Turbomole, Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, or Jaguar), "
-            "or TREXIO (.h5, .hdf5, .trexio; install optional extra: trexio)"
+            f"cclib could not parse file: {filepath}. Unsupported file format: {suffix}. "
+            "Use .xyz, .cube, .molden, .hess, .cif, .gbw, cclib-supported "
+            "outputs, a QC input (Orca, Q-Chem, Gaussian, NWChem, Turbomole, "
+            "Molcas, Molpro, MRCC, CFOUR, Psi4, GAMESS, or Jaguar), or TREXIO "
+            "(.h5, .hdf5, .trexio; install optional extra: trexio)"
         )

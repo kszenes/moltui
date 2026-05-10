@@ -42,6 +42,19 @@ wheels = [
 ]
 
 [[package]]
+name = "cclib"
+version = "1.8.1.post1097+e98d87e5"
+source = { git = "https://github.com/cclib/cclib.git#e98d87e5c488eb2240525603c1609d065553c069" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "packaging" },
+    { name = "periodictable" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -758,10 +771,15 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "cclib" },
     { name = "trexio" },
+]
+cclib = [
+    { name = "cclib" },
 ]
 dev = [
     { name = "ase" },
+    { name = "cclib" },
     { name = "psutil" },
     { name = "pyscf" },
     { name = "pytest" },
@@ -777,6 +795,12 @@ test = [
 ]
 test-ase = [
     { name = "ase" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+]
+test-cclib = [
+    { name = "cclib" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -808,6 +832,10 @@ trexio = [
 requires-dist = [
     { name = "ase", marker = "extra == 'dev'", specifier = ">=3.22" },
     { name = "ase", marker = "extra == 'test-ase'", specifier = ">=3.22" },
+    { name = "cclib", marker = "extra == 'all'", git = "https://github.com/cclib/cclib.git" },
+    { name = "cclib", marker = "extra == 'cclib'", git = "https://github.com/cclib/cclib.git" },
+    { name = "cclib", marker = "extra == 'dev'", git = "https://github.com/cclib/cclib.git" },
+    { name = "cclib", marker = "extra == 'test-cclib'", git = "https://github.com/cclib/cclib.git" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "psutil", marker = "extra == 'dev'" },
     { name = "psutil", marker = "extra == 'test-pyscf'" },
@@ -816,18 +844,21 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0" },
     { name = "pytest", marker = "extra == 'test-ase'", specifier = ">=7.0" },
+    { name = "pytest", marker = "extra == 'test-cclib'", specifier = ">=7.0" },
     { name = "pytest", marker = "extra == 'test-iodata'", specifier = ">=7.0" },
     { name = "pytest", marker = "extra == 'test-pyscf'", specifier = ">=7.0" },
     { name = "pytest", marker = "extra == 'test-trexio'", specifier = ">=7.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.3.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.3.0" },
     { name = "pytest-asyncio", marker = "extra == 'test-ase'", specifier = ">=1.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test-cclib'", specifier = ">=1.3.0" },
     { name = "pytest-asyncio", marker = "extra == 'test-iodata'", specifier = ">=1.3.0" },
     { name = "pytest-asyncio", marker = "extra == 'test-pyscf'", specifier = ">=1.3.0" },
     { name = "pytest-asyncio", marker = "extra == 'test-trexio'", specifier = ">=1.3.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=5.0" },
     { name = "pytest-cov", marker = "extra == 'test-ase'", specifier = ">=5.0" },
+    { name = "pytest-cov", marker = "extra == 'test-cclib'", specifier = ">=5.0" },
     { name = "pytest-cov", marker = "extra == 'test-iodata'", specifier = ">=5.0" },
     { name = "pytest-cov", marker = "extra == 'test-pyscf'", specifier = ">=5.0" },
     { name = "pytest-cov", marker = "extra == 'test-trexio'", specifier = ">=5.0" },
@@ -840,7 +871,7 @@ requires-dist = [
     { name = "trexio", marker = "extra == 'test-trexio'", specifier = ">=2.0" },
     { name = "trexio", marker = "extra == 'trexio'", specifier = ">=2.0" },
 ]
-provides-extras = ["all", "dev", "test", "test-ase", "test-iodata", "test-pyscf", "test-trexio", "trexio"]
+provides-extras = ["all", "cclib", "dev", "test", "test-ase", "test-cclib", "test-iodata", "test-pyscf", "test-trexio", "trexio"]
 
 [[package]]
 name = "networkx"
@@ -1022,6 +1053,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/df/de/0d2b39fb4af88a0258f3bac87dfcbb48e73fbdea4a2ed0e2213f9a4c2f9a/packaging-26.1.tar.gz", hash = "sha256:f042152b681c4bfac5cae2742a55e103d27ab2ec0f3d88037136b6bfe7c9c5de", size = 215519, upload-time = "2026-04-14T21:12:49.362Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7a/c2/920ef838e2f0028c8262f16101ec09ebd5969864e5a64c4c05fad0617c56/packaging-26.1-py3-none-any.whl", hash = "sha256:5d9c0669c6285e491e0ced2eee587eaf67b670d94a19e94e3984a481aba6802f", size = 95831, upload-time = "2026-04-14T21:12:47.56Z" },
+]
+
+[[package]]
+name = "periodictable"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pyparsing" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/44/0d/f494a2ec62ab56ffd44da4f236db374421fe0cd1e39d9ebc9785751eb432/periodictable-2.1.0-py3-none-any.whl", hash = "sha256:e9155d2bf5ac10050abeff2f99096d4f04312c0c8a6bb432e28744367c5064b3", size = 830749, upload-time = "2026-02-28T00:08:27.135Z" },
 ]
 
 [[package]]

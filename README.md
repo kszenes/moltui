@@ -107,12 +107,15 @@ Toggle between **light** and **dark** mode with `i`.
 | Orca **.GBW**¹        | ✓        | —          | ✓        | —            |
 | Orca **.hess**        | ✓        | —          | —        | ✓            |
 | **TrexIO**²           | ✓        | —          | ✓        | —            |
+| **Output files**³     | ✓        | ✓          | ✓        | ✓            |
 
 ✓ supported; — not part of the file format
 
 ¹ Requires `orca_2mkl` in `PATH`
 
 ² Requires installing `moltui[trexio]`
+
+³ Thanks to [cclib](https://github.com/cclib/cclib)
 
 ### Quantum Chemistry Inputs
 
@@ -192,4 +195,5 @@ The molecular structures can be viewed from the inputs of the following programs
 
 ## Acknowledgements
 
-Parser tests are cross-validated with data and reference parsers from [IODATA](https://github.com/theochem/iodata), [cclib](https://github.com/cclib/cclib) / [cclib-data](https://github.com/cclib/cclib-data), [PySCF](https://github.com/pyscf/pyscf), and [ASE](https://gitlab.com/ase/ase).
+- The parsing of the quantum chemistry output files is entirely handled by the wonderful [cclib](https://github.com/cclib/cclib) package.
+- Additionally, parser tests are cross-validated with data and reference parsers from [IODATA](https://github.com/theochem/iodata), [cclib](https://github.com/cclib/cclib) / [cclib-data](https://github.com/cclib/cclib-data), [PySCF](https://github.com/pyscf/pyscf), and [ASE](https://gitlab.com/ase/ase).

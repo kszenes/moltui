@@ -32,15 +32,17 @@ Repository = "https://github.com/kszenes/moltui"
 Issues = "https://github.com/kszenes/moltui/issues"
 
 [project.optional-dependencies]
-all = ["moltui[trexio]"]
+all = ["moltui[trexio]", "moltui[cclib]"]
 dev = [
     "moltui[test-pyscf]",
     "moltui[test-trexio]",
     "moltui[test-ase]",
     "moltui[test-iodata]",
+    "moltui[test-cclib]",
 ]
 
 trexio = ["trexio>=2.0"]
+cclib = ["cclib @ git+https://github.com/cclib/cclib.git"]
 
 test = [
     "pytest>=7.0",
@@ -64,6 +66,10 @@ test-iodata = [
     "moltui[test]",
     "qc-iodata>=1.0.1",
 ]
+test-cclib = [
+    "moltui[test]",
+    "moltui[cclib]",
+]
 
 [build-system]
 requires = ["hatchling", "hatch-vcs"]
@@ -80,6 +86,9 @@ exclude = ["archive/", "examples/", "*.png"]
 
 [tool.hatch.build.targets.wheel]
 exclude = ["archive/", "examples/", "*.png"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.version]
 source = "vcs"

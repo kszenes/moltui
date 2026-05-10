@@ -1,4 +1,4 @@
-! cc-pvdz usesym pmodel
+! cc-pvqz usesym pmodel printmos printbasis noautostart
 
 %casscf
   nel 6

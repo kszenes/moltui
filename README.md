@@ -107,12 +107,15 @@ Toggle between **light** and **dark** mode with `i`.
 | Orca **.GBW**¹        | ✓        | —          | ✓        | —            |
 | Orca **.hess**        | ✓        | —          | —        | ✓            |
 | **TrexIO**²           | ✓        | —          | ✓        | —            |
+| **Output files**³     | ✓        | ✓          | ✓        | ✓            |
 
 ✓ supported; — not part of the file format
 
 ¹ Requires `orca_2mkl` in `PATH`
 
 ² Requires installing `moltui[trexio]`
+
+³ Thanks to [cclib](https://github.com/cclib/cclib)
 
 ### Quantum Chemistry Inputs
 

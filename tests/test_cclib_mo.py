@@ -10,12 +10,13 @@ import pytest
 pytest.importorskip("cclib")
 
 from moltui.gto import parse_molden
+from moltui.mo_panel import mo_display_order
 from moltui.molden import OrbitalData, evaluate_mo
 from moltui.parsers import load_orbital_data_from_cclib
 
 DATA = Path(__file__).parent.parent / "data"
-N2_OUT = DATA / "orca/mo/n2_nosym.out"
-N2_MOLDEN = DATA / "orca/n2.molden.input"
+N2_OUT = DATA / "orca/mo/n2.out"
+N2_MOLDEN = DATA / "orca/mo/n2.molden.input"
 
 
 def _require(path: Path) -> Path:
@@ -85,9 +86,25 @@ def test_mo_coefficients(od_cclib, od_molden):
     for mo in range(coeff_c.shape[1]):
         col_c = coeff_c[:, mo]
         col_m = coeff_m[:, mo]
-        # Align sign: pick the sign of the largest-magnitude element
-        sign = np.sign(col_c[np.argmax(np.abs(col_c))]) * np.sign(col_m[np.argmax(np.abs(col_m))])
+        # Align the arbitrary global orbital sign.
+        sign = 1.0 if float(np.dot(col_c, col_m)) >= 0.0 else -1.0
         np.testing.assert_allclose(col_c, sign * col_m, atol=1e-5, err_msg=f"MO {mo}")
+
+
+def test_display_order_is_source_order_independent(od_cclib, od_molden):
+    """The UI may sort rows; row keys/source indices remain the render identity."""
+    for od in (od_cclib, od_molden):
+        order = mo_display_order(od.mo_energies, od.mo_occupations)
+        keys = [(-float(od.mo_occupations[i]), float(od.mo_energies[i]), i) for i in order]
+        assert keys == sorted(keys)
+        # Rows 11/12 are a near-degenerate virtual pair. Their relative source
+        # order may differ across parsers; the visible MO labels remain these
+        # source indices, and selection uses them internally for rendering.
+        np.testing.assert_allclose(
+            sorted(float(od.mo_energies[i]) for i in order[10:12]),
+            [0.420230769, 0.420230769],
+            atol=2e-6,
+        )
 
 
 def test_homo_cube(od_cclib, od_molden):

@@ -1157,7 +1157,8 @@ def load_normal_modes_from_cclib(filepath: str | Path) -> HessData | None:
 
     Returns None if the file contains no vibrational data.
     """
-    data = _parse_cclib_data(filepath).data
+    result = _parse_cclib_data(filepath)
+    data = result.data if isinstance(result, CclibResult) else result
     if not hasattr(data, "vibfreqs") or not hasattr(data, "vibdisps"):
         return None
 
@@ -1227,14 +1228,6 @@ def load_orbital_data_from_cclib(filepath: str | Path) -> "OrbitalData | None":
     mo_occupations = np.array(data.nooccnos[0]) if hasattr(data, "nooccnos") else np.zeros(data.nmo)
     mo_symmetries = list(data.mosyms[0]) if hasattr(data, "mosyms") else [""] * data.nmo
     mo_spins = ["Alpha"] * data.nmo
-
-    # ORCA with symmetry groups MOs by irrep rather than by energy — sort all
-    # MO arrays by energy so the ordering is consistent regardless of symmetry.
-    order = np.argsort(mo_energies)
-    mo_energies = mo_energies[order]
-    mo_occupations = mo_occupations[order]
-    mo_coefficients = mo_coefficients[:, order]
-    mo_symmetries = [mo_symmetries[i] for i in order]
 
     mol = _cclib_data_to_molecule(data, frame_index=-1)
     basis = GtoBasis(

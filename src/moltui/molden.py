@@ -44,7 +44,16 @@ class OrbitalData:
         """Build from a :class:`~moltui.gto.GtoBasis` and matching ``molecule``."""
         n_mos = basis.mo_coefficients.shape[1] if basis.mo_coefficients.ndim == 2 else 0
         occ_indices = np.where(basis.mo_occupations > 0.5)[0] if n_mos > 0 else np.array([])
-        homo_idx = int(occ_indices[-1]) if len(occ_indices) > 0 else 0
+        if len(occ_indices) > 0 and basis.mo_energies.size >= n_mos:
+            occ_energies = basis.mo_energies[occ_indices]
+            max_occ_energy = float(np.max(occ_energies))
+            # Near-degenerate HOMOs may differ by parser rounding.  Pick the
+            # last source-order member of the top-energy manifold for stable
+            # behavior without imposing a parser-side MO sort.
+            top = occ_indices[np.isclose(occ_energies, max_occ_energy, atol=1e-6, rtol=0.0)]
+            homo_idx = int(top[-1])
+        else:
+            homo_idx = int(occ_indices[-1]) if len(occ_indices) > 0 else 0
         return cls(
             molecule=molecule,
             mo_energies=basis.mo_energies,

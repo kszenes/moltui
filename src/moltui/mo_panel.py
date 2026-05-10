@@ -1,8 +1,23 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from textual.message import Message
 
 from .selection_table_panel import SelectionTablePanel
+
+
+def mo_display_order(energies: Sequence[float], occupations: Sequence[float]) -> list[int]:
+    """Return source MO indices in the UI display order.
+
+    Parsers keep source/file order intact. The UI may sort rows for readability,
+    but displayed MO numbers and row keys remain source indices used internally
+    for rendering.
+    """
+    return sorted(
+        range(len(energies)),
+        key=lambda i: (-float(occupations[i]), float(energies[i]), i),
+    )
 
 
 class MOPanel(SelectionTablePanel):
@@ -48,17 +63,21 @@ class MOPanel(SelectionTablePanel):
         self._has_energies = has_energies
         self._has_occupations = has_occupations
         self._mo_data = []
-        for i in range(len(energies)):
-            sym = symmetries[i] if i < len(symmetries) else ""
-            spin = spins[i] if i < len(spins) else ""
-            self._mo_data.append((i, sym, energies[i], occupations[i], spin))
-        # Sort by occupancy descending, then energy ascending within each group
-        self._mo_data.sort(key=lambda x: (-x[3], x[2]))
+        for source_idx in mo_display_order(energies, occupations):
+            sym = symmetries[source_idx] if source_idx < len(symmetries) else ""
+            spin = spins[source_idx] if source_idx < len(spins) else ""
+            self._mo_data.append(
+                (source_idx, sym, energies[source_idx], occupations[source_idx], spin)
+            )
         if self.is_mounted:
             self._populate_table()
 
     def _has_rows(self) -> bool:
         return bool(self._mo_data)
+
+    def display_number_for_mo(self, mo_idx: int) -> int:
+        """Return the 1-based user-facing MO number for a source MO index."""
+        return mo_idx + 1
 
     def _populate_table(self) -> None:
         def _populate() -> None:
@@ -109,7 +128,7 @@ class MOPanel(SelectionTablePanel):
         self._with_populating(_populate)
 
     def adjacent_mo(self, mo_idx: int, delta: int) -> int | None:
-        """Return the MO index of the next/prev entry in table order."""
+        """Return the source MO index of the next/prev entry in table order."""
         for row, (mi, *_) in enumerate(self._mo_data):
             if mi == mo_idx:
                 target = row + delta
@@ -119,7 +138,7 @@ class MOPanel(SelectionTablePanel):
         return None
 
     def select_mo(self, mo_idx: int, *, center: bool = False) -> None:
-        """Move the cursor to the given MO index."""
+        """Move the cursor to the given source MO index."""
         self._current_mo = mo_idx
         self.select_row_key(mo_idx, center=center)
 

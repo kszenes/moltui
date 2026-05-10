@@ -168,9 +168,9 @@ interface, adapt or use parts of their codes:
 
 
   ***********************************
-  * Starting time: Fri Apr 24 17:03:22 2026
-  * Host name:     student-net-vpn-1404.intern.ethz.ch
-  * Process ID:    40108
+  * Starting time: Sat May  9 20:28:34 2026
+  * Host name:     Kalmans-MacBook-Pro.local
+  * Process ID:    50507
   * Working dir.:  /Users/kszenes/code/moltui/wt/cclib/data/orca/mo
   ***********************************
 
@@ -4082,18 +4082,18 @@ Coupling container construction done
 CASSCF TIMINGS
 --------------
 
-Total time                       ...       21.6 sec
-Sum of individual times          ...       21.4 sec ( 99.3%)
+Total time                       ...       23.6 sec
+Sum of individual times          ...       23.5 sec ( 99.7%)
 
 Calculation of AO operators
-   F(Core) operator              ...        4.1 sec ( 19.0%)
-   G(Act) operator               ...        4.1 sec ( 19.1%)
+   F(Core) operator              ...        4.5 sec ( 18.9%)
+   G(Act) operator               ...        4.5 sec ( 19.1%)
 Calculation of MO transformed quantities
-   J(MO) operators               ...       13.1 sec ( 60.9%)
+   J(MO) operators               ...       14.5 sec ( 61.3%)
    AO->MO one electron integrals ...        0.0 sec (  0.0%)
 Configuration interaction steps
    CI-setup phase                ...        0.0 sec (  0.0%)
-   CI-solution phase             ...        0.0 sec (  0.2%)
+   CI-solution phase             ...        0.1 sec (  0.2%)
    Generation of densities       ...        0.0 sec (  0.0%)
 Orbital improvement steps
    Orbital gradient              ...        0.0 sec (  0.0%)
@@ -4181,12 +4181,12 @@ CASSCF TIMINGS
 --------------
 
 Total time                       ...        0.0 sec
-Sum of individual times          ...        0.0 sec ( 96.8%)
+Sum of individual times          ...        0.0 sec ( 98.2%)
 
 Calculation of AO operators
 Calculation of MO transformed quantities
 Configuration interaction steps
-   CI-setup phase                ...        0.0 sec ( 96.8%)
+   CI-setup phase                ...        0.0 sec ( 98.2%)
 Orbital improvement steps
 
 Maximum memory used throughout the entire CASSCF-calculation: 31.5 MB
@@ -4373,11 +4373,11 @@ List of optional additional citations
 
 Timings for individual modules:
 
-Sum of individual times          ...       22.332 sec (=   0.372 min)
-Startup calculation              ...        0.224 sec (=   0.004 min)   1.0 %
-SCF iterations                   ...        0.120 sec (=   0.002 min)   0.5 %
-CASSCF iterations                ...       21.774 sec (=   0.363 min)  97.5 %
-Property integrals               ...        0.108 sec (=   0.002 min)   0.5 %
-Property calculations            ...        0.106 sec (=   0.002 min)   0.5 %
+Sum of individual times          ...       24.055 sec (=   0.401 min)
+Startup calculation              ...        0.174 sec (=   0.003 min)   0.7 %
+SCF iterations                   ...        0.065 sec (=   0.001 min)   0.3 %
+CASSCF iterations                ...       23.696 sec (=   0.395 min)  98.5 %
+Property integrals               ...        0.061 sec (=   0.001 min)   0.3 %
+Property calculations            ...        0.060 sec (=   0.001 min)   0.2 %
                              ****ORCA TERMINATED NORMALLY****
-TOTAL RUN TIME: 0 days 0 hours 0 minutes 22 seconds 438 msec
+TOTAL RUN TIME: 0 days 0 hours 0 minutes 24 seconds 118 msec

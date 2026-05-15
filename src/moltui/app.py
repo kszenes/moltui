@@ -21,9 +21,17 @@ from textual.strip import Strip
 from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, RadioSet, TabbedContent
 
+from .config import MoltuiConfig, load_config
 from .elements import Molecule
 from .geometry_panel import GeometryPanel
 from .image_renderer import render_scene, rotation_matrix
+from .pixel_renderer import (
+    delete_kitty_image,
+    detect_kitty_support,
+    pixel_dims,
+    query_cell_px,
+    write_kitty_image_at,
+)
 from .isosurface import IsosurfaceMesh, extract_isosurfaces
 from .mo_panel import MOPanel
 from .normal_mode_panel import NormalModePanel
@@ -223,6 +231,8 @@ class MoleculeView(Widget):
         self.shininess = 32.0
         self._cached_strips: list[Strip] = []
         self._cached_size: tuple[int, int] = (0, 0)
+        self.hd_mode: str | None = None  # 'kitty' or None (braille)
+        self._pixel_buffer: np.ndarray | None = None
 
     def set_molecule(
         self, molecule: Molecule, isosurfaces: list[IsosurfaceMesh] | None = None
@@ -244,6 +254,10 @@ class MoleculeView(Widget):
         self._cached_size = (0, 0)
         self.refresh()
 
+    def on_unmount(self) -> None:
+        if self.hd_mode == "kitty":
+            delete_kitty_image()
+
     def _compute_parent_indices(self, augmented: Molecule) -> list[int]:
         """For each atom in `augmented`, return the index of the in-cell parent."""
         if self.molecule is None:
@@ -263,6 +277,10 @@ class MoleculeView(Widget):
 
         if self.molecule is None or cols == 0 or rows == 0:
             self._cached_strips = [Strip.blank(cols) for _ in range(rows)]
+            return
+
+        if self.hd_mode == "kitty":
+            self._rebuild_kitty(cols, rows)
             return
 
         px_w = cols * 2
@@ -412,6 +430,130 @@ class MoleculeView(Widget):
 
         self._cached_strips = strips
 
+    def _rebuild_kitty(self, cols: int, rows: int) -> None:
+        """Render at high resolution and transmit via Kitty cursor-positioning (a=T, z=1)."""
+        px_w, px_h = pixel_dims(cols, rows)
+        bg = (0, 0, 0) if self.dark_bg else (255, 255, 255)
+        mol, isos, show_cell = _build_view_render_scene(self)
+
+        hl: set[int] | None = None
+        if self.highlighted_display_positions:
+            hl_set = {
+                idx
+                for idx, atom in enumerate(mol.atoms)
+                if _position_key(atom.position) in self.highlighted_display_positions
+            }
+            hl = hl_set or None
+        elif self.highlighted_atoms:
+            hl = self.highlighted_atoms
+
+        pixels, _ = render_scene(
+            px_w,
+            px_h,
+            mol,
+            self.rot_matrix,
+            self.camera_distance,
+            bg_color=bg,
+            isosurfaces=isos,
+            ssaa=1,
+            pan=(self.pan_x, self.pan_y),
+            highlighted_atoms=hl,
+            licorice=self.licorice,
+            vdw=self.vdw,
+            ambient=self.ambient,
+            diffuse=self.diffuse,
+            specular=self.specular,
+            shininess=self.shininess,
+            atom_scale=self.atom_scale,
+            bond_radius=self.bond_radius,
+            show_cell=show_cell,
+        )
+
+        if self.show_atom_numbers and self.molecule is not None:
+            pixels = self._draw_atom_numbers_kitty(pixels, px_w, px_h, mol)
+
+        self._pixel_buffer = pixels
+        self._cached_strips = [Strip.blank(cols) for _ in range(rows)]
+        try:
+            self.app.call_after_refresh(self._paint_kitty)
+        except RuntimeError:
+            pass
+
+    def _draw_atom_numbers_kitty(
+        self,
+        pixels: np.ndarray,
+        px_w: int,
+        px_h: int,
+        mol,
+    ) -> np.ndarray:
+        from PIL import Image, ImageDraw, ImageFont
+
+        img = Image.fromarray(pixels, "RGB")
+        draw = ImageDraw.Draw(img)
+
+        font = None
+        _font_candidates = [
+            "/System/Library/Fonts/Helvetica.ttc",          # macOS
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "C:/Windows/Fonts/arial.ttf",                   # Windows (unreachable, for completeness)
+        ]
+        for _path in _font_candidates:
+            try:
+                font = ImageFont.truetype(_path, size=9)
+                break
+            except Exception:
+                continue
+        if font is None:
+            try:
+                font = ImageFont.load_default(size=9)
+            except TypeError:
+                font = ImageFont.load_default()
+
+        fov = 1.5
+        scale = min(px_w, px_h) / 2
+        rot = self.rot_matrix
+        if mol.lattice is not None:
+            centroid = 0.5 * (mol.lattice[0] + mol.lattice[1] + mol.lattice[2])
+        else:
+            centroid = mol.center()
+
+        label_color = (255, 255, 0) if self.dark_bg else (0, 0, 180)
+        parent_lookup = self._compute_parent_indices(mol)
+
+        for idx, atom in enumerate(mol.atoms):
+            pos = rot @ (atom.position - centroid)
+            pos[0] += self.pan_x
+            pos[1] += self.pan_y
+            pos[2] += self.camera_distance
+            if pos[2] <= 0.1:
+                continue
+            sx = px_w / 2 + pos[0] * fov / pos[2] * scale
+            sy = px_h / 2 - pos[1] * fov / pos[2] * scale
+            label_idx = parent_lookup[idx] if idx < len(parent_lookup) else idx
+            label = str(label_idx + 1)
+            draw.text((sx + 2, sy - 10), label, fill=label_color, font=font)
+
+        return np.array(img)
+
+    def _paint_kitty(self) -> None:
+        """Transmit the current pixel buffer via the Kitty protocol.
+
+        Called via call_after_refresh so it fires after Textual has flushed
+        its frame. The image uses z=1 and therefore floats above Textual's
+        blank strips without flicker.
+        """
+        if self._pixel_buffer is None or self.hd_mode != "kitty":
+            return
+        region = self.content_region
+        write_kitty_image_at(
+            self._pixel_buffer,
+            region.x,
+            region.y,
+            region.width,
+            region.height,
+        )
+
 
 class MoltuiApp(App):
     CSS = """
@@ -452,6 +594,7 @@ class MoltuiApp(App):
         Binding("right_square_bracket", "next_animation_step", "Frame]", show=False),
         Binding("left_square_bracket", "prev_animation_step", "[Frame", show=False),
         Binding("e", "export_png", "Export"),
+        Binding("H", "toggle_hd_mode", "HD"),
         Binding("q", "quit", "Quit"),
         Binding("tab", "tab_forward", show=False, priority=True),
         Binding("shift+tab", "tab_backward", show=False, priority=True),
@@ -466,6 +609,7 @@ class MoltuiApp(App):
         current_mo: int = 0,
         trajectory_data: TrajectoryData | None = None,
         normal_mode_data: NormalModeData | None = None,
+        config: MoltuiConfig | None = None,
     ):
         super().__init__()
         self.molecule = molecule
@@ -481,6 +625,7 @@ class MoltuiApp(App):
         self._mo_switch_task: asyncio.Task[None] | None = None
         self.trajectory_data = trajectory_data
         self.normal_mode_data = normal_mode_data
+        self._config = config or MoltuiConfig()
         self._startup_toast: str | None = None
         self._view_mode = _VIEW_GEOMETRY
         self._panel_hidden = False
@@ -521,6 +666,17 @@ class MoltuiApp(App):
 
     def on_mount(self) -> None:
         view = self.query_one(MoleculeView)
+        view.ambient = self._config.ambient
+        view.diffuse = self._config.diffuse
+        view.specular = self._config.specular
+        view.shininess = self._config.shininess
+        view.atom_scale = self._config.atom_scale
+        view.bond_radius = self._config.bond_radius
+        if self._config.hd:
+            if detect_kitty_support():
+                view.hd_mode = "kitty"
+            else:
+                self._startup_toast = "Terminal does not support Kitty graphics (--hd ignored)"
         view.set_molecule(self.molecule, self._isosurfaces)
         panel = self.query_one(GeometryPanel)
         self._display_geometry = self._build_display_geometry()
@@ -922,6 +1078,20 @@ class MoltuiApp(App):
         if panel.has_class("visible"):
             tabs = panel.query_one(TabbedContent)
             panel._emit_current_highlight(panel._table_for_tab(tabs.active))
+
+    def action_toggle_hd_mode(self) -> None:
+        view = self.query_one(MoleculeView)
+        if view.hd_mode == "kitty":
+            delete_kitty_image()
+            view.hd_mode = None
+            self.notify("Braille mode")
+        elif detect_kitty_support():
+            view.hd_mode = "kitty"
+            self.notify("HD mode")
+        else:
+            self.notify("Terminal does not support Kitty graphics", severity="warning")
+            return
+        view._invalidate_cache()
 
     def action_toggle_bg(self) -> None:
         view = self.query_one(MoleculeView)
@@ -1639,7 +1809,19 @@ def run():
             'or TREXIO .h5/.hdf5/.trexio; optional: pip install "moltui[trexio]")'
         ),
     )
+    parser.add_argument(
+        "--hd",
+        action="store_true",
+        help="Start in HD graphics mode (requires Kitty, WezTerm, or Ghostty)",
+    )
     parsed = parser.parse_args()
+
+    if detect_kitty_support():
+        query_cell_px()
+
+    config = load_config()
+    if parsed.hd:
+        config.hd = True
 
     filepath = parsed.file
     try:
@@ -1766,6 +1948,7 @@ def run():
             current_mo=current_mo,
             trajectory_data=trajectory_data,
             normal_mode_data=normal_mode_data,
+            config=config,
         )
         app._cube_data = cube_data_for_app
         if filetype == "trexio":

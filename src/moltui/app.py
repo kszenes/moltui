@@ -28,6 +28,7 @@ from .pixel_renderer import (
     delete_kitty_image,
     detect_kitty_support,
     pixel_dims,
+    query_cell_px,
     write_kitty_image_at,
 )
 from .isosurface import IsosurfaceMesh, extract_isosurfaces
@@ -229,7 +230,7 @@ class MoleculeView(Widget):
         self.shininess = 32.0
         self._cached_strips: list[Strip] = []
         self._cached_size: tuple[int, int] = (0, 0)
-        self.pixel_mode: str | None = None  # 'kitty' or None (braille)
+        self.hd_mode: str | None = None  # 'kitty' or None (braille)
         self._pixel_buffer: np.ndarray | None = None
 
     def set_molecule(
@@ -252,12 +253,8 @@ class MoleculeView(Widget):
         self._cached_size = (0, 0)
         self.refresh()
 
-    def on_mount(self) -> None:
-        if detect_kitty_support():
-            self.pixel_mode = "kitty"
-
     def on_unmount(self) -> None:
-        if self.pixel_mode == "kitty":
+        if self.hd_mode == "kitty":
             delete_kitty_image()
 
     def _compute_parent_indices(self, augmented: Molecule) -> list[int]:
@@ -281,7 +278,7 @@ class MoleculeView(Widget):
             self._cached_strips = [Strip.blank(cols) for _ in range(rows)]
             return
 
-        if self.pixel_mode == "kitty":
+        if self.hd_mode == "kitty":
             self._rebuild_kitty(cols, rows)
             return
 
@@ -433,7 +430,7 @@ class MoleculeView(Widget):
         self._cached_strips = strips
 
     def _rebuild_kitty(self, cols: int, rows: int) -> None:
-        """Render at high resolution and transmit via Kitty graphics protocol."""
+        """Render at high resolution and transmit via Kitty cursor-positioning (a=T, z=1)."""
         px_w, px_h = pixel_dims(cols, rows)
         bg = (0, 0, 0) if self.dark_bg else (255, 255, 255)
         mol, isos, show_cell = _build_view_render_scene(self)
@@ -478,7 +475,7 @@ class MoleculeView(Widget):
         self._cached_strips = [Strip.blank(cols) for _ in range(rows)]
         try:
             self.app.call_after_refresh(self._paint_kitty)
-        except Exception:
+        except RuntimeError:
             pass
 
     def _draw_atom_numbers_kitty(
@@ -493,10 +490,24 @@ class MoleculeView(Widget):
         img = Image.fromarray(pixels, "RGB")
         draw = ImageDraw.Draw(img)
 
-        try:
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size=9)
-        except Exception:
-            font = ImageFont.load_default()
+        font = None
+        _font_candidates = [
+            "/System/Library/Fonts/Helvetica.ttc",          # macOS
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "C:/Windows/Fonts/arial.ttf",                   # Windows (unreachable, for completeness)
+        ]
+        for _path in _font_candidates:
+            try:
+                font = ImageFont.truetype(_path, size=9)
+                break
+            except Exception:
+                continue
+        if font is None:
+            try:
+                font = ImageFont.load_default(size=9)
+            except TypeError:
+                font = ImageFont.load_default()
 
         fov = 1.5
         scale = min(px_w, px_h) / 2
@@ -525,13 +536,13 @@ class MoleculeView(Widget):
         return np.array(img)
 
     def _paint_kitty(self) -> None:
-        """Write the current pixel buffer to the terminal via the Kitty protocol.
+        """Transmit the current pixel buffer via the Kitty protocol.
 
-        Called via ``call_after_refresh`` so it fires after Textual has flushed
-        its frame.  The image uses ``z=1`` and therefore floats above Textual's
-        blank strips without race conditions or flicker.
+        Called via call_after_refresh so it fires after Textual has flushed
+        its frame. The image uses z=1 and therefore floats above Textual's
+        blank strips without flicker.
         """
-        if self._pixel_buffer is None or self.pixel_mode != "kitty":
+        if self._pixel_buffer is None or self.hd_mode != "kitty":
             return
         region = self.content_region
         write_kitty_image_at(
@@ -582,7 +593,7 @@ class MoltuiApp(App):
         Binding("right_square_bracket", "next_animation_step", "Frame]", show=False),
         Binding("left_square_bracket", "prev_animation_step", "[Frame", show=False),
         Binding("e", "export_png", "Export"),
-        Binding("p", "toggle_pixel_mode", "Pixel"),
+        Binding("H", "toggle_hd_mode", "HD"),
         Binding("q", "quit", "Quit"),
         Binding("tab", "tab_forward", show=False, priority=True),
         Binding("shift+tab", "tab_backward", show=False, priority=True),
@@ -597,6 +608,7 @@ class MoltuiApp(App):
         current_mo: int = 0,
         trajectory_data: TrajectoryData | None = None,
         normal_mode_data: NormalModeData | None = None,
+        initial_hd_mode: bool = False,
     ):
         super().__init__()
         self.molecule = molecule
@@ -612,6 +624,7 @@ class MoltuiApp(App):
         self._mo_switch_task: asyncio.Task[None] | None = None
         self.trajectory_data = trajectory_data
         self.normal_mode_data = normal_mode_data
+        self._initial_hd_mode = initial_hd_mode
         self._startup_toast: str | None = None
         self._view_mode = _VIEW_GEOMETRY
         self._panel_hidden = False
@@ -652,6 +665,11 @@ class MoltuiApp(App):
 
     def on_mount(self) -> None:
         view = self.query_one(MoleculeView)
+        if self._initial_hd_mode:
+            if detect_kitty_support():
+                view.hd_mode = "kitty"
+            else:
+                self._startup_toast = "Terminal does not support Kitty graphics (--hd ignored)"
         view.set_molecule(self.molecule, self._isosurfaces)
         panel = self.query_one(GeometryPanel)
         self._display_geometry = self._build_display_geometry()
@@ -1054,15 +1072,15 @@ class MoltuiApp(App):
             tabs = panel.query_one(TabbedContent)
             panel._emit_current_highlight(panel._table_for_tab(tabs.active))
 
-    def action_toggle_pixel_mode(self) -> None:
+    def action_toggle_hd_mode(self) -> None:
         view = self.query_one(MoleculeView)
-        if view.pixel_mode == "kitty":
+        if view.hd_mode == "kitty":
             delete_kitty_image()
-            view.pixel_mode = None
+            view.hd_mode = None
             self.notify("Braille mode")
         elif detect_kitty_support():
-            view.pixel_mode = "kitty"
-            self.notify("Kitty pixel mode")
+            view.hd_mode = "kitty"
+            self.notify("HD mode")
         else:
             self.notify("Terminal does not support Kitty graphics", severity="warning")
             return
@@ -1784,7 +1802,15 @@ def run():
             'or TREXIO .h5/.hdf5/.trexio; optional: pip install "moltui[trexio]")'
         ),
     )
+    parser.add_argument(
+        "--hd",
+        action="store_true",
+        help="Start in HD graphics mode (requires Kitty, WezTerm, or Ghostty)",
+    )
     parsed = parser.parse_args()
+
+    if detect_kitty_support():
+        query_cell_px()
 
     filepath = parsed.file
     try:
@@ -1911,6 +1937,7 @@ def run():
             current_mo=current_mo,
             trajectory_data=trajectory_data,
             normal_mode_data=normal_mode_data,
+            initial_hd_mode=parsed.hd,
         )
         app._cube_data = cube_data_for_app
         if filetype == "trexio":

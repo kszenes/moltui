@@ -21,6 +21,7 @@ from textual.strip import Strip
 from textual.widget import Widget
 from textual.widgets import DataTable, Footer, Header, RadioSet, TabbedContent
 
+from .config import MoltuiConfig, load_config
 from .elements import Molecule
 from .geometry_panel import GeometryPanel
 from .image_renderer import render_scene, rotation_matrix
@@ -608,7 +609,7 @@ class MoltuiApp(App):
         current_mo: int = 0,
         trajectory_data: TrajectoryData | None = None,
         normal_mode_data: NormalModeData | None = None,
-        initial_hd_mode: bool = False,
+        config: MoltuiConfig | None = None,
     ):
         super().__init__()
         self.molecule = molecule
@@ -624,7 +625,7 @@ class MoltuiApp(App):
         self._mo_switch_task: asyncio.Task[None] | None = None
         self.trajectory_data = trajectory_data
         self.normal_mode_data = normal_mode_data
-        self._initial_hd_mode = initial_hd_mode
+        self._config = config or MoltuiConfig()
         self._startup_toast: str | None = None
         self._view_mode = _VIEW_GEOMETRY
         self._panel_hidden = False
@@ -665,7 +666,13 @@ class MoltuiApp(App):
 
     def on_mount(self) -> None:
         view = self.query_one(MoleculeView)
-        if self._initial_hd_mode:
+        view.ambient = self._config.ambient
+        view.diffuse = self._config.diffuse
+        view.specular = self._config.specular
+        view.shininess = self._config.shininess
+        view.atom_scale = self._config.atom_scale
+        view.bond_radius = self._config.bond_radius
+        if self._config.hd:
             if detect_kitty_support():
                 view.hd_mode = "kitty"
             else:
@@ -1812,6 +1819,10 @@ def run():
     if detect_kitty_support():
         query_cell_px()
 
+    config = load_config()
+    if parsed.hd:
+        config.hd = True
+
     filepath = parsed.file
     try:
         filetype = _detect_filetype(filepath)
@@ -1937,7 +1948,7 @@ def run():
             current_mo=current_mo,
             trajectory_data=trajectory_data,
             normal_mode_data=normal_mode_data,
-            initial_hd_mode=parsed.hd,
+            config=config,
         )
         app._cube_data = cube_data_for_app
         if filetype == "trexio":

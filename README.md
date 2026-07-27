@@ -35,7 +35,7 @@ The modes consist of **molecular orbitals**, **normal modes** and **geometry** a
 
 ### Analyze Geometry
 
-- **Bond lengths, angles and dihedrals** can be viewed using the `g`eometry key which opens a sidebar. Navigate between tabs via `<tab>`.
+- Browse individual **atoms** (element, index, and coordinates), bond lengths, angles, and dihedrals in the geometry sidebar. Navigate between tabs via `<tab>`.
 - The quantity is **highlighted in yellow** on the molecule.
 - **Sort** the quantity in increasing magnitude via `s`.
 - **Atom indices** can be toggled via `#`.
@@ -161,7 +161,7 @@ The molecular structures can be viewed from the inputs of the following programs
 
 | Key | Action |
 |-----|--------|
-| `Tab/Shift+Tab` | Switch **Bonds/Angles/Dihedrals** tab |
+| `Tab/Shift+Tab` | Switch **Atoms/Bonds/Angles/Dihedrals** tab |
 | `s` | Toggle **sort by value** for active tab |
 
 ### Visual panel

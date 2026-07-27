@@ -55,7 +55,7 @@ class GeometryPanel(Widget):
     def set_molecule(self, molecule: Molecule, parent_indices: list[int] | None = None) -> None:
         selected_row_keys: dict[str, str | None] | None = None
         if self.is_mounted and self._molecule is not None:
-            tab_ids = ("tab-bonds", "tab-angles", "tab-dihedrals")
+            tab_ids = ("tab-atoms", "tab-bonds", "tab-angles", "tab-dihedrals")
             selected_row_keys = {
                 tab_id: self._current_row_key_value(self._table_for_tab(tab_id))
                 for tab_id in tab_ids
@@ -69,7 +69,7 @@ class GeometryPanel(Widget):
         """Recompute displayed geometry values while preserving table selection."""
         if self._molecule is None or not self.is_mounted:
             return
-        tab_ids = ("tab-bonds", "tab-angles", "tab-dihedrals")
+        tab_ids = ("tab-atoms", "tab-bonds", "tab-angles", "tab-dihedrals")
         selected_row_keys = {
             tab_id: self._current_row_key_value(self._table_for_tab(tab_id)) for tab_id in tab_ids
         }
@@ -83,14 +83,14 @@ class GeometryPanel(Widget):
 
     def action_next_tab(self) -> None:
         tabs = self.query_one(TabbedContent)
-        tab_ids = ["tab-bonds", "tab-angles", "tab-dihedrals"]
+        tab_ids = ["tab-atoms", "tab-bonds", "tab-angles", "tab-dihedrals"]
         current = tabs.active
         idx = tab_ids.index(current) if current in tab_ids else 0
         tabs.active = tab_ids[(idx + 1) % len(tab_ids)]
 
     def action_prev_tab(self) -> None:
         tabs = self.query_one(TabbedContent)
-        tab_ids = ["tab-bonds", "tab-angles", "tab-dihedrals"]
+        tab_ids = ["tab-atoms", "tab-bonds", "tab-angles", "tab-dihedrals"]
         current = tabs.active
         idx = tab_ids.index(current) if current in tab_ids else 0
         tabs.active = tab_ids[(idx - 1) % len(tab_ids)]
@@ -109,7 +109,9 @@ class GeometryPanel(Widget):
         self._emit_current_highlight(table)
 
     def compose(self) -> ComposeResult:
-        with TabbedContent("Bonds", "Angles", "Dihedrals"):
+        with TabbedContent("Atoms", "Bonds", "Angles", "Dihedrals"):
+            with TabPane("Atoms", id="tab-atoms"):
+                yield DataTable(id="atoms-table", cursor_type="row")
             with TabPane("Bonds", id="tab-bonds"):
                 yield DataTable(id="bonds-table", cursor_type="row")
             with TabPane("Angles", id="tab-angles"):
@@ -129,6 +131,7 @@ class GeometryPanel(Widget):
 
     def _table_for_tab(self, tab_id: str) -> DataTable:
         table_id = {
+            "tab-atoms": "#atoms-table",
             "tab-bonds": "#bonds-table",
             "tab-angles": "#angles-table",
             "tab-dihedrals": "#dihedrals-table",
@@ -158,6 +161,16 @@ class GeometryPanel(Widget):
             return
         self._populating = True
         selected_row_keys = selected_row_keys or {}
+
+        # Atoms
+        table = self.query_one("#atoms-table", DataTable)
+        table.clear(columns=True)
+        table.add_columns("Atom", "X (Å)", "Y (Å)", "Z (Å)")
+        for idx, atom in enumerate(self._molecule.atoms):
+            table.add_row(
+                self._atom_label(idx), *(f"{x: .4f}" for x in atom.position), key=str(idx)
+            )
+        self._restore_cursor(table, selected_row_keys.get("tab-atoms"))
 
         # Bonds
         bonds = self._molecule.get_bond_lengths()

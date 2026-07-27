@@ -293,6 +293,8 @@ async def test_periodic_replication_toggle_preserves_selection_mapping() -> None
     async with app.run_test() as pilot:
         await pilot.pause()
         app._stop_playback()
+        await pilot.press("tab")
+        await pilot.pause()
         panel = app.query_one(GeometryPanel)
         table = panel.query_one("#bonds-table", DataTable)
         view = app.query_one(MoleculeView)

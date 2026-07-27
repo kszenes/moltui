@@ -4,6 +4,14 @@
 
 - Add an Atoms tab to the geometry sidebar as requested in #24.
 
+## [0.6.1](https://github.com/kszenes/moltui/compare/v0.6.0...v0.6.1) (2026-07-27)
+
+
+### Bug Fixes
+
+* allow publishing an existing release tag ([317c58d](https://github.com/kszenes/moltui/commit/317c58d57f2089959369e2f5ef3908cf6e0e004f))
+* make release please push to pypi ([0e8347f](https://github.com/kszenes/moltui/commit/0e8347f71273467c9fdca3690b0993095d132ce2))
+
 ## [0.6.0](https://github.com/kszenes/moltui/compare/v0.5.2...v0.6.0) (2026-07-27)
 
 

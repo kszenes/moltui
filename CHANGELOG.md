@@ -4,6 +4,13 @@
 
 - Add an Atoms tab to the geometry sidebar as requested in #24.
 
+## [0.6.0](https://github.com/kszenes/moltui/compare/v0.5.2...v0.6.0) (2026-07-27)
+
+
+### Features
+
+* implement atom tab in geom view ([#25](https://github.com/kszenes/moltui/issues/25)) ([c0c9124](https://github.com/kszenes/moltui/commit/c0c91248a258f7f3f9db6b912d51f945d17eb651))
+
 ## [0.5.2](https://github.com/kszenes/moltui/compare/v0.5.1...v0.5.2) (2026-05-03)
 
 ### Bug Fixes
@@ -97,4 +104,3 @@
 - Add support for ORCA `.gbw` files
 - Add support for Z-matrix (`.zmat`) format
 - Fix rotation direction
-

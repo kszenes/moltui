@@ -32,7 +32,7 @@ async def test_tab_and_shift_tab_switch_geometry_tabs() -> None:
 
     from textual.widgets import TabbedContent
 
-    from moltui.app import MoltuiApp
+    from moltui.app import MoleculeView, MoltuiApp
     from moltui.elements import Atom, Molecule, get_element
     from moltui.geometry_panel import GeometryPanel
 
@@ -49,12 +49,22 @@ async def test_tab_and_shift_tab_switch_geometry_tabs() -> None:
         await pilot.pause()
         panel = app.query_one(GeometryPanel)
         tabs = panel.query_one(TabbedContent)
-        assert tabs.active == "tab-bonds"
+        assert tabs.active == "tab-atoms"
+        atoms = panel.query_one("#atoms-table")
+        assert atoms.row_count == 3
+        assert [key.value for key in atoms.rows] == ["0", "1", "2"]
+        assert atoms.get_row_at(1) == ["2:H", " 0.9000", " 0.0000", " 0.0000"]
+        assert atoms.get_row_at(2) == ["3:H", "-0.3000", " 0.8000", " 0.0000"]
+        assert app.query_one(MoleculeView).highlighted_atoms == {0}
+
+        await pilot.press("n")
+        await pilot.pause()
+        assert app.query_one(MoleculeView).highlighted_atoms == {1}
 
         await pilot.press("tab")
         await pilot.pause()
-        assert tabs.active == "tab-angles"
+        assert tabs.active == "tab-bonds"
 
         await pilot.press("shift+tab")
         await pilot.pause()
-        assert tabs.active == "tab-bonds"
+        assert tabs.active == "tab-atoms"

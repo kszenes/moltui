@@ -63,6 +63,8 @@ async def test_geometry_table_half_page_and_boundary_navigation() -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
+        await pilot.press("tab")
+        await pilot.pause()
         panel = app.query_one(GeometryPanel)
         table = panel.query_one("#bonds-table", DataTable)
         view = app.query_one(MoleculeView)

@@ -1,11 +1,14 @@
 # Changelog
 
-## [0.5.2](https://github.com/kszenes/moltui/compare/v0.5.1...v0.5.2) (2026-05-03)
+## Unreleased
 
+- Add an Atoms tab to the geometry sidebar as requested in #24.
+
+## [0.5.2](https://github.com/kszenes/moltui/compare/v0.5.1...v0.5.2) (2026-05-03)
 
 ### Bug Fixes
 
-* bugfixes in fchk parsing ([#20](https://github.com/kszenes/moltui/issues/20)) ([2d6becd](https://github.com/kszenes/moltui/commit/2d6becd1fecae204edb1e221b7d34e95ff236a34))
+- bugfixes in fchk parsing ([#20](https://github.com/kszenes/moltui/issues/20)) ([2d6becd](https://github.com/kszenes/moltui/commit/2d6becd1fecae204edb1e221b7d34e95ff236a34))
 
 ## [v0.5.1] 2025-05-02
 
@@ -94,3 +97,4 @@
 - Add support for ORCA `.gbw` files
 - Add support for Z-matrix (`.zmat`) format
 - Fix rotation direction
+

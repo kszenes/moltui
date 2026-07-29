@@ -629,8 +629,9 @@ class ImageRenderer:
             for i, j in molecule.bonds:
                 c1 = molecule.atoms[i].element.cpk_color
                 c2 = molecule.atoms[j].element.cpk_color
-                if has_hl and i in hl and j in hl:
+                if has_hl and i in hl:
                     c1 = self._highlight_color()
+                if has_hl and j in hl:
                     c2 = self._highlight_color()
                 self.render_bond(transformed[i], transformed[j], c1, c2)
 

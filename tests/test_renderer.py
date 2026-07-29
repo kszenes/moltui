@@ -217,6 +217,18 @@ class TestRenderScene:
         )
         assert hit.any()
 
+    def test_highlighted_atom_colors_its_bond_half(self, monkeypatch):
+        mol = _h2_molecule()
+        bond_colors = []
+
+        def capture_bond(_self, _p1, _p2, color1, color2):
+            bond_colors.append((color1, color2))
+
+        monkeypatch.setattr(ImageRenderer, "render_bond", capture_bond)
+        render_scene(64, 48, mol, rotation_matrix(0, 0, 0), 5.0, ssaa=1, highlighted_atoms={0})
+
+        assert bond_colors == [(ImageRenderer._highlight_color(), mol.atoms[1].element.cpk_color)]
+
     def test_periodic_anchor_is_stable_with_ghost_images(self):
         H = get_element("H")
         mol = Molecule(

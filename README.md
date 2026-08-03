@@ -1,5 +1,7 @@
 # MolTUI
 
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21765976-blue.svg)](https://doi.org/10.5281/zenodo.21765976)
+
 **MolTUI** is a terminal **molecular** and **crystallographic** viewer designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
 Ideal for **remote SSH sessions** and **lightweight analyses**.
 
@@ -190,6 +192,21 @@ The molecular structures can be viewed from the inputs of the following programs
 - The content is rendered using braille Unicode characters and, therefore, the quality of rendering can depend on the font and terminal emulator. All figures in the repository have been generated using the JetBrains Mono Nerd Font in the Kitty terminal. 
 - The Orca GBW file format is typically incompatible between versions. Therefore, the `orca_2mkl` should ideally be of the same version as the Orca version used to produce the GBW file. Newer version of Orca can try to recover earlier GBW files using the [rescue](https://orca-manual.mpi-muelheim.mpg.de/contents/quickstartguide/troubleshooting.html#using-old-orca-inputs) feature. 
 
+## Citation
+
+If MolTUI has helped you in your research, feel free to cite it as:
+
+```bibtex
+@software{Szenes_MolTUI_2026,
+  author = {Szenes, Kalman},
+  title  = {{MolTUI}: A Terminal Molecular Viewer Based on Unicode},
+  year   = {2026},
+  doi    = {10.5281/zenodo.21765976},
+  url    = {https://doi.org/10.5281/zenodo.21765976}
+}
+```
+
 ## Acknowledgements
 
 Parser tests are cross-validated with data and reference parsers from [IODATA](https://github.com/theochem/iodata), [cclib](https://github.com/cclib/cclib) / [cclib-data](https://github.com/cclib/cclib-data), [PySCF](https://github.com/pyscf/pyscf), and [ASE](https://gitlab.com/ase/ase).
+

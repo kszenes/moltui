@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use MolTUI, please cite it using this metadata."
+title: "MolTUI: A Terminal Molecular Viewer Based on Unicode"
+doi: 10.5281/zenodo.21765976
+license: MIT
+repository-code: "https://github.com/kszenes/moltui"
+authors:
+  - given-names: Kalman
+    family-names: Szenes

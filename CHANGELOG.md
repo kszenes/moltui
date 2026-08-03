@@ -4,6 +4,13 @@
 
 - Add an Atoms tab to the geometry sidebar as requested in #24.
 
+## [0.6.3](https://github.com/kszenes/moltui/compare/v0.6.2...v0.6.3) (2026-08-03)
+
+
+### Documentation
+
+* add citation reference ([0c9d426](https://github.com/kszenes/moltui/commit/0c9d426f4b8f44f145a590f047cadd501eec9adf))
+
 ## [0.6.1](https://github.com/kszenes/moltui/compare/v0.6.0...v0.6.1) (2026-07-29)
 
 

@@ -21,3 +21,10 @@ def test_release_workflow_can_publish_a_named_existing_tag():
     assert "tag:" in workflow
     assert "ref: ${{ inputs.tag || github.ref }}" in workflow
     assert "TAG_NAME: ${{ inputs.tag || github.ref_name }}" in workflow
+
+
+def test_release_workflow_skips_pypi_for_prereleases():
+    workflow = (REPO_ROOT / ".github/workflows/release.yml").read_text()
+
+    assert "is_prerelease=" in workflow
+    assert "if: needs.build.outputs.is_prerelease != 'true'" in workflow

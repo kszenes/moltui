@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version_check.outputs.version }}
+      is_prerelease: ${{ steps.version_check.outputs.is_prerelease }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -48,6 +49,8 @@ jobs:
           import os
           import zipfile
           from pathlib import Path
+
+          from packaging.version import Version
 
           dist_dir = Path("dist")
           wheel_path = next(dist_dir.glob("*.whl"), None)
@@ -80,6 +83,7 @@ jobs:
           output_file = Path(os.environ["GITHUB_OUTPUT"])
           with output_file.open("a", encoding="utf-8") as f:
               f.write(f"version={metadata_version}\n")
+              f.write(f"is_prerelease={str(Version(metadata_version).is_prerelease).lower()}\n")
           PY
 
       - name: Upload artifacts
@@ -104,6 +108,7 @@ jobs:
           path: dist/
 
       - name: Publish package to PyPI
+        if: needs.build.outputs.is_prerelease != 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/

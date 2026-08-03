@@ -1,13 +1,9 @@
 # MolTUI
 
-**MolTUI** is a terminal **molecular** and **crystallographic** viewer designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
-Ideal for **remote SSH sessions** and **lightweight analyses**.
-
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21766031.svg)](https://doi.org/10.5281/zenodo.21766031)
 
-## Citation
-
-If you use MolTUI in academic work, please cite it using the metadata in [CITATION.cff](CITATION.cff): https://doi.org/10.5281/zenodo.21766031
+**MolTUI** is a terminal **molecular** and **crystallographic** viewer designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
+Ideal for **remote SSH sessions** and **lightweight analyses**.
 
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
 
@@ -196,6 +192,22 @@ The molecular structures can be viewed from the inputs of the following programs
 - The content is rendered using braille Unicode characters and, therefore, the quality of rendering can depend on the font and terminal emulator. All figures in the repository have been generated using the JetBrains Mono Nerd Font in the Kitty terminal. 
 - The Orca GBW file format is typically incompatible between versions. Therefore, the `orca_2mkl` should ideally be of the same version as the Orca version used to produce the GBW file. Newer version of Orca can try to recover earlier GBW files using the [rescue](https://orca-manual.mpi-muelheim.mpg.de/contents/quickstartguide/troubleshooting.html#using-old-orca-inputs) feature. 
 
+## Citation
+
+If MolTUI has helped you in your research, feel free to cite it as:
+
+```bibtex
+@software{Szenes_MolTUI_2026,
+  author  = {Szenes, Kalman and Gibney, Daniel and {fra-mazza} and {scohenjanes5}},
+  title   = {{kszenes/moltui: v0.6.2.dev0}},
+  version = {v0.6.2.dev0},
+  year    = {2026},
+  doi     = {10.5281/zenodo.21766031},
+  url     = {https://doi.org/10.5281/zenodo.21766031}
+}
+```
+
 ## Acknowledgements
 
 Parser tests are cross-validated with data and reference parsers from [IODATA](https://github.com/theochem/iodata), [cclib](https://github.com/cclib/cclib) / [cclib-data](https://github.com/cclib/cclib-data), [PySCF](https://github.com/pyscf/pyscf), and [ASE](https://gitlab.com/ase/ase).
+

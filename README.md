@@ -3,6 +3,12 @@
 **MolTUI** is a terminal **molecular** and **crystallographic** viewer designed for **quick inspection** of **geometries**, **trajectories**, **orbitals** and **normal modes** directly in the **terminal** using **Unicode** characters.
 Ideal for **remote SSH sessions** and **lightweight analyses**.
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21766031.svg)](https://doi.org/10.5281/zenodo.21766031)
+
+## Citation
+
+If you use MolTUI in academic work, please cite it using the metadata in [CITATION.cff](CITATION.cff): https://doi.org/10.5281/zenodo.21766031
+
 <img width="480" height="480" alt="benzene" src="https://github.com/user-attachments/assets/c71de594-9dd3-4cb4-9754-e86dc663f730" />
 
 ## Installation

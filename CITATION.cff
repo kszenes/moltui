@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use MolTUI, please cite it using this metadata."
+title: "MolTUI"
+version: 0.6.2.dev0
+date-released: 2026-08-03
+doi: 10.5281/zenodo.21766031
+license: MIT
+repository-code: "https://github.com/kszenes/moltui"
+authors:
+  - given-names: Kalman
+    family-names: Szenes
+  - given-names: Daniel
+    family-names: Gibney
+  - alias: fra-mazza
+  - alias: scohenjanes5
